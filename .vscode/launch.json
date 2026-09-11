@@ -1,0 +1,103 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "amiga-assembly",
+            "request": "launch",
+            "name": "WinUAE A500 512k PAL",
+            "stopOnEntry": false,
+            "program": "${workspaceFolder}/uae/dh0/main",
+            "remoteProgram": "SYS:main",
+            "emulatorType": "winuae",
+            "emulatorArgs": [
+                "-r", "F:/AMIGA/Kickstarts/kick1.3.rom",
+                "-s", "chipmem=512",
+                "-s", "bogomem=0",
+                "-s", "fastmem=0",
+                "-s", "chipset=ocs",
+                "-s", "cpu_type=68000",
+                "-s", "ntsc=false",
+                "-s", "gfx_linemode=scanlines",
+                "-s", "filesystem=rw,dh0:${workspaceFolder}/uae/dh0"
+            ],
+            "preLaunchTask": "amigaassembly: build",
+            "options": [
+                "-f", "./default.uae"
+            ]
+        },
+        {
+            "type": "amiga-assembly",
+            "request": "launch",
+            "name": "WinUAE A500 512k NTSC",
+            "stopOnEntry": false,
+            "program": "${workspaceFolder}/uae/dh0/main",
+            "remoteProgram": "SYS:main",
+            "emulatorType": "winuae",
+            "emulatorArgs": [
+                "-r", "F:/AMIGA/Kickstarts/kick1.3.rom",
+                "-s", "chipmem=512",
+                "-s", "bogomem=0",
+                "-s", "fastmem=0",
+                "-s", "chipset=ocs",
+                "-s", "cpu_type=68000",
+                "-s", "ntsc=true",
+                "-s", "gfx_linemode=double",
+                "-s", "filesystem=rw,dh0:${workspaceFolder}/uae/dh0"
+            ],
+            "preLaunchTask": "amigaassembly: build"
+        },
+        {
+            "type": "amiga-assembly",
+            "request": "launch",
+            "name": "WinUAE A500 1MB PAL",
+            "stopOnEntry": false,
+            "program": "${workspaceFolder}/uae/dh0/main",
+            "remoteProgram": "SYS:main",
+            "emulatorType": "winuae",
+            "emulatorArgs": [
+                "-r", "F:/AMIGA/Kickstarts/kick1.3.rom",
+                // Bigger machine for the REAL game: ECS gives 1MB chip, plus 2MB fast.
+                // The depacked hunk image + the game's FAST hunks live in fast RAM;
+                // the game's chip hunks (~272KB) fit in chip. Boots the game floppy
+                // directly (simple filesystem= => DH0 does not outrank the floppy).
+                "-s", "chipset=ecs",
+                "-s", "chipmem=1024",
+                "-s", "bogomem=0",
+                "-s", "fastmem=2048",
+                "-s", "cpu_type=68000",
+                "-s", "ntsc=false",
+                "-s", "gfx_linemode=double",
+                "-s", "filesystem=rw,dh0:${workspaceFolder}/uae/dh0"
+            ],
+            "preLaunchTask": "amigaassembly: build"
+        },
+        {
+            "type": "amiga-assembly",
+            "request": "launch",
+            "name": "WinUAE Debug",
+            "stopOnEntry": false,
+            "program": "${workspaceFolder}/uae/dh0/main",
+            "remoteProgram": "SYS:main",
+            "emulatorType": "winuae",
+            "emulatorArgs": [
+                "-s",
+                "filesystem=rw,dh0:${workspaceFolder}/uae/dh0",
+            ],
+            "preLaunchTask": "amigaassembly: build"
+        },
+        {
+            "type": "amiga-assembly",
+            "request": "launch",
+            "name": "FS-UAE Debug",
+            "stopOnEntry": true,
+            "program": "${workspaceFolder}/uae/dh0/main",
+            "remoteProgram": "SYS:main",
+            "emulatorType": "fs-uae",
+            "emulatorArgs": [
+                "--hard_drive_0=${workspaceFolder}/uae/dh0",
+                "--automatic_input_grab=0"
+            ],
+            "preLaunchTask": "amigaassembly: build"
+        }
+    ]
+}

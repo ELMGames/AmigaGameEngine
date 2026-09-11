@@ -1,0 +1,255 @@
+
+;==============================================================================
+; AMIGA GAME ENGINE
+; controls.asm  -  Player Input Reading and Trigger Detection
+;==============================================================================
+;
+; Reads the current keyboard state from the Keys[] buffer (populated by the
+; CIA-A keyboard interrupt handler in keyboard.asm) and produces two control
+; bytes stored in the Variables block:
+;
+;   ControlsHold    - bit set for EVERY frame the key is held down
+;   ControlsTrigger - bit set ONLY on the first frame a key is pressed (edge)
+;
+; Control byte bit layout (same for both Hold and Trigger):
+;   bit 4 = FIRE  (Space bar)   - switch active player
+;   bit 3 = RIGHT (cursor right)
+;   bit 2 = LEFT  (cursor left)
+;   bit 1 = DOWN  (cursor down)
+;   bit 0 = UP    (cursor up)
+;
+; Keyboard raw scan-codes mapped (these are the Amiga CIA scan-codes):
+;   $4c = cursor UP
+;   $4d = cursor DOWN
+;   $4f = cursor LEFT
+;   $4e = cursor RIGHT
+;   $40 = Space bar (FIRE / switch player)
+;
+;==============================================================================
+
+
+;==============================================================================
+; UpdateControls  -  Read input and update Hold + Trigger bytes
+;
+; Must be called once per frame (from GameRun via VBlankTick).
+;
+; Calls ReadControls to get the raw current-frame state in d0, then calls
+; StoreControls to perform edge-detection and update the two control bytes.
+;
+; No arguments.  Destroys d0.
+;==============================================================================
+
+UpdateControls:
+    bsr        ReadControls           ; d0 = current frame raw control bits
+    bsr        StoreControls1         ; edge-detect: update ControlsHold and ControlsTrigger
+    bra        HandleJoy2Fire         ; tail call: joy2 hold detection (returns to our caller)
+
+
+;==============================================================================
+; StoreControls  -  Compute edge-triggered (trigger) byte from hold state
+;
+; Entry points:
+;   StoreControls1 - with a3 = ControlsHold (for external calls)
+;   StoreControls  - direct entry (a3 already set by UpdateControls fall-through)
+;
+; On entry:
+;   d0 = new raw control state (current frame)
+;   a3 = pointer to ControlsHold byte
+;
+; Algorithm (edge detection):
+;   prev_hold = ControlsHold    ; read previous frame's hold state
+;   ControlsHold = d0           ; store new hold state
+;   trigger = (prev_hold ^ d0) & d0
+;            = bits that CHANGED between frames AND are now SET
+;            = bits that transitioned 0->1 this frame (new presses only)
+;   ControlsTrigger = trigger   ; stored at -1(a3), i.e. the byte before ControlsHold
+;
+; Note: ControlsTrigger is defined one byte before ControlsHold in the Variables
+; layout (variables.asm), so -1(a3) addresses it correctly once a3 = &ControlsHold.
+;==============================================================================
+
+StoreControls1:
+    lea        ControlsHold(a5),a3   ; a3 -> ControlsHold byte
+
+StoreControls:
+    move.b     (a3),d1               ; d1 = previous frame hold state
+    move.b     d0,(a3)               ; update ControlsHold with current state
+    eor.b      d1,d0                 ; d0 = bits that changed (XOR prev and new)
+    and.b      (a3),d0               ; keep only bits that are now SET (new presses)
+    move.b     d0,-1(a3)             ; store to ControlsTrigger (one byte before Hold)
+    rts
+
+
+;==============================================================================
+; ReadControls  -  Sample joystick (priority) then keyboard, build control byte
+;
+; First reads the joystick (port 1) for input.  If joystick provides any input,
+; returns that immediately.  Otherwise falls through to keyboard input.
+;
+; Out:
+;   d0.b = control bits:
+;     bit 0 = UP    (1 if cursor-up   is held)
+;     bit 1 = DOWN  (1 if cursor-down is held)
+;     bit 2 = LEFT  (1 if cursor-left is held)
+;     bit 3 = RIGHT (1 if cursor-right is held)
+;     bit 4 = FIRE  (1 if fire button is held)
+;
+; Joystick priority means if the joystick provides any input, keyboard is ignored.
+; If no joystick input, keyboard is checked instead.
+;==============================================================================
+
+ReadControls:
+    bsr        ReadJoystick          ; d0 = joystick control bits
+    tst.b      d0                    ; any joystick input?
+    bne        .done                 ; yes - use joystick, skip keyboard
+
+    ; No joystick input - fall back to keyboard
+    moveq      #0,d0                 ; clear result byte (all keys up)
+    lea        Keys,a0               ; a0 = base of Keys[] scan-code buffer
+
+    KeyTest    KEY_UP,CONTROLB_UP       ; cursor UP    -> bit 0
+    KeyTest    KEY_DOWN,CONTROLB_DOWN   ; cursor DOWN  -> bit 1
+    KeyTest    KEY_LEFT,CONTROLB_LEFT   ; cursor LEFT  -> bit 2
+    KeyTest    KEY_RIGHT,CONTROLB_RIGHT ; cursor RIGHT -> bit 3
+    KeyTest    KEY_SPACE,CONTROLB_FIRE  ; Space bar    -> bit 4
+
+.done
+    rts
+
+
+;==============================================================================
+; ReadJoystick  -  Read joystick port 1 and return control bits
+;
+; Reads the Amiga joystick hardware (port 1) and decodes it into the standard
+; control byte format used by the rest of the game.
+;
+; Joystick bits decoded from JOY1DAT:
+;   bit 0 = Y0 (up/down, inverted: 0=up, 1=down)
+;   bit 1 = X0 (left/right, inverted: 0=left, 1=right)
+;   bit 8 = Y1
+;   bit 9 = X1
+;
+; Direction logic:
+;   UP    = Y1=0 and Y0=1
+;   DOWN  = Y1=1 and Y0=0
+;   LEFT  = X1=0 and X0=1
+;   RIGHT = X1=1 and X0=0
+;
+; Fire button is NOT decoded here; it is handled by HandleJoy2Fire (hold detection).
+;
+; Out:
+;   d0.b = control bits (same format as keyboard):
+;     bit 0 = UP
+;     bit 1 = DOWN
+;     bit 2 = LEFT
+;     bit 3 = RIGHT
+;
+; Preserves all other registers.
+;==============================================================================
+
+ReadJoystick:
+    movem.l    d1-d2/a0-a1,-(a7)    ; save working registers
+
+    moveq      #0,d0                ; clear result byte
+
+    ; Read joystick direction bits from JOY1DAT
+    lea        $dff000,a0           ; custom chip base
+    move.w     JOY1DAT(a0),d1       ; d1 = JOY1DAT
+
+    ; Up: Y1=1 and Y0=0 (quad counter 10 = up)
+    move.w     d1,d2
+    btst       #8,d2
+    beq.s      .notup
+    btst       #0,d2
+    bne.s      .notup
+    bset       #CONTROLB_UP,d0
+.notup
+
+    ; Down: Y1=0 and Y0=1 (quad counter 01 = down)
+    move.w     d1,d2
+    btst       #8,d2
+    bne.s      .notdown
+    btst       #0,d2
+    beq.s      .notdown
+    bset       #CONTROLB_DOWN,d0
+.notdown
+
+    ; Left: X1=1 and X0=0 (quad counter 10 = left)
+    move.w     d1,d2
+    btst       #9,d2
+    beq.s      .notleft
+    btst       #1,d2
+    bne.s      .notleft
+    bset       #CONTROLB_LEFT,d0
+.notleft
+
+    ; Right: X1=0 and X0=1 (quad counter 01 = right)
+    move.w     d1,d2
+    btst       #9,d2
+    bne.s      .notright
+    btst       #1,d2
+    beq.s      .notright
+    bset       #CONTROLB_RIGHT,d0
+.notright
+
+    movem.l    (a7)+,d1-d2/a0-a1
+    rts
+
+
+;==============================================================================
+; HandleJoy2Fire  -  Joystick 2 fire: quick press = select, hold = undo (F9)
+;
+; Called every frame via tail-call from UpdateControls, after StoreControls has
+; already written ControlsHold/ControlsTrigger from joystick 1 and keyboard.
+;
+; Reads CIAAPRA bit 7 (joy2 fire, active-low) each frame and maintains
+; Joy2FireHold as a hold counter:
+;   0              - idle (button not held / between presses)
+;   1..thresh-1    - button held, counting up
+;   thresh         - hold threshold reached; KEY_F9 already set; clamped here
+;                    until button is released
+;
+; On release:
+;   Joy2FireHold < thresh  → quick press: synthesise CONTROLB_FIRE edge in
+;                            ControlsTrigger so menus / ActionIdle see it as
+;                            a normal fire button press.
+;   Joy2FireHold == thresh → hold: KEY_F9 already fired; no FIRE edge generated.
+;
+; Destroys d0, d1, a0, a1.
+;==============================================================================
+
+JOY2_HOLD_THRESHOLD = 25                 ; frames (~0.5 s at 50 Hz PAL)
+
+HandleJoy2Fire:
+    movem.l    d0-d1/a0-a1,-(a7)
+
+    lea        CIAA_BASE,a1
+    move.b     (a1),d0
+    btst       #7,d0                    ; joy2 fire, active-low
+    bne        .released                ; 1 = not pressed
+
+    ; === Button held this frame ===
+    move.w     Joy2FireHold(a5),d1
+    cmp.w      #JOY2_HOLD_THRESHOLD,d1  ; already clamped at threshold?
+    beq        .done                    ; yes: KEY_F9 already fired, do nothing
+    addq.w     #1,d1
+    move.w     d1,Joy2FireHold(a5)
+    cmp.w      #JOY2_HOLD_THRESHOLD,d1  ; just reached threshold?
+    bne        .done                    ; no: keep counting
+    lea        Keys,a0
+    st         KEY_F9(a0)              ; synthesise F9 → ActionIdle will trigger undo
+    bra        .done
+
+.released
+    ; === Button not pressed this frame ===
+    move.w     Joy2FireHold(a5),d1
+    beq        .done                    ; was already idle, nothing to do
+    cmp.w      #JOY2_HOLD_THRESHOLD,d1  ; was a full hold (KEY_F9 already fired)?
+    beq        .clear                   ; yes: no FIRE edge
+    ; Short press released → synthesise CONTROLB_FIRE edge
+    bset       #CONTROLB_FIRE,ControlsTrigger(a5)
+.clear
+    clr.w      Joy2FireHold(a5)
+.done
+    movem.l    (a7)+,d0-d1/a0-a1
+    rts

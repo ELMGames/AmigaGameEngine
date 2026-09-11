@@ -1,0 +1,55 @@
+player_hwsprites.bin / player_hwsprites.zx0
+===========================================
+Amiga OCS hardware sprite animation frames for Millie and Molly (the two
+player characters).  Read directly by Agnus DMA via copper list sprite
+pointer entries; the CPU never touches the pixel data after setup.
+
+FORMAT
+------
+Each animation "frame" in the game maps to four hardware sprite structures
+(two attached pairs), giving the player a 32-pixel-wide composite image
+with 16 colours (4-bit depth via pair attachment):
+
+  SPR2 + SPR3  — left  half (16 px), attached pair
+  SPR4 + SPR5  — right half (16 px), attached pair
+
+Each individual sprite structure (SPRITE_SIZE = 104 bytes):
+  4 bytes   SPRxPOS / SPRxCTL position/control header (written each frame by SpriteCoord)
+  96 bytes  image data: TILE_HEIGHT(24) rows x 4 bytes per row
+  4 bytes   terminator (two zero words, required by Agnus)
+
+One animation frame = 4 x 104 = HW_FRAME_SIZE (416 bytes).
+
+CONTENT
+-------
+96 total frames laid out as a flat array:
+
+  Frames  0-47  Molly  (base sprite offset 0  in Player_SpriteOffset)
+  Frames 48-95  Millie (base sprite offset 48 in Player_SpriteOffset)
+
+Per-character animation offsets (PLAYER_SPRITE_* constants in const.asm):
+
+  +0  .. +3    Idle / generic standing (4 frames)
+  +4  .. +11   Walk right (8 frames)
+  +16 .. +19   On-ladder climbing (4 frames)
+  +19          Ladder idle freeze (single frame, re-used)
+  +28 .. +31   Falling (4 frames)
+  +32          PLAYER_SPRITE_LEFT_OFFSET: mirror of all above for left-facing
+
+USAGE
+-----
+ShowSprite (spritetools.asm) computes:
+  byte_offset = (Player_SpriteOffset + AnimFrame) * SPRITE_SIZE * 4
+  lea  PlayerHWSprites, a0
+  add.l  byte_offset, a0      ; -> first sprite structure for this frame
+Then calls SpriteCoord to write position headers and patches cpSprites in
+the copper list so Agnus fetches the new data on the next frame.
+
+SIZES
+-----
+  player_hwsprites.bin   39,936 bytes  (96 frames x 416 bytes, uncompressed)
+  player_hwsprites.zx0   11,283 bytes  (ZX0-compressed for fast-RAM storage)
+
+The .zx0 file lives in the data_overlay_src Fast RAM section and is
+decompressed into the overlay chip RAM region (above TileMask) by
+CopyOverlayAssets at the end of the loading screen.

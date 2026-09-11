@@ -1,0 +1,63 @@
+   File                   | What it does
+  ------------------------|------------------------------------------------------------------------------------------
+   actors.asm             | Enemy AI — move, fall, float, collision. Called every frame from GameRun
+   assets.asm             | Chapters/LevelAssetSet/TileAssets tables. Just edited — essential
+   audio.asm              | ProTracker start/stop wrappers (AudioPlayMod, AudioStopMod)
+   bigfont.asm            | Michroma proportional font blit routines (used on title/level banners)
+   bubble.asm             | Air-bubble animation for sprite 6. Safe to remove if not using tileset-3 underwater
+                          | levels, but it's defensive — BubbleTick checks AssetSet==3 and exits immediately since
+                          | all levels use tileset 0. Low cost to keep
+   char_bltroutines.asm   | 8×8 monospace blitter text (used everywhere — menus, HUD, level banners)
+   const.asm              | All constants, equates, block types, tile sizes — critical
+   controls.asm           | Joystick + keyboard input reader (UpdateControls, ControlsTrigger)
+   copperlists.asm        | All copper lists + portrait incbins (MilliePic, MollyPic)
+   frozenplayer.asm       | Frozen (second) player rendering and fall logic — called from player.asm
+   gamecomplete.asm       | Game complete screen (starfield + text)
+   gamestatus.asm         | State machine dispatcher — the backbone of the game loop
+   instructions.asm       | Instructions/developer guide pages (just rewritten)
+   keyboard.asm           | CIA-A keyboard interrupt handler
+   levelcomplete.asm      | Level complete screen, password gen, menu
+   leveltext.asm          | Chapter/level banner text tables (just rewritten)
+   levelutils.asm         | Level init, asset loading, map building, LevelBannerShow
+   loading.asm            | Loading screen — ZX tape animation, copper setup
+   macros.asm             | PUSHALL/POPALL, WAITBLIT, DrawLevelCounter macro — critical
+   mapstuff.asm           | Map rendering, tile blitting, DrawMap
+   michroma_font_data.asm | Michroma glyph bitmaps/offsets/widths — incbin'd into michroma_font.bin
+   player.asm             | All player movement, animation, action state machine
+   ptplayer/ptplayer.asm  | ProTracker replayer
+   screenutils.asm        | CopySaveToStatic, TurboClear, screen flip/wipe routines
+   spritetools.asm        | Hardware sprite positioning (PlacePlayerSprites, HideAllSprites)
+   struct.asm             | Player and Actor struct field offsets — critical
+   system.asm             | Amiga system takeover and restore
+   titlescreen.asm        | Title screen — aurora, stars, menu
+   tools.asm              | TurboClear, blitter helpers, utility routines
+   uigfx.asm              | Button label stubs (already stripped — keep for label definitions)
+   undo.asm               | Undo/rewind save+restore — UndoMove called from player.asm via F9
+   variables.asm          | All BSS variable definitions
+   vhs_rewind.asm         | VHS scanline distortion effect during undo — VHS_Init called from gamestatus.asm
+   zx0_faster.asm         | ZX0 decompressor — used for tiles and player sprites
+   zxsfx.asm              | ZX tape-load PCM audio samples — used by loading.asm
+  ──────
+  ### 🗑️ REMOVE — Safe to move to TEMP
+
+   File                        | What it does                              | Why removable
+  -----------------------------|-------------------------------------------|-----------------------------------------
+   const.asm.bak               | Backup of an older const.asm              | Editor backup — never included in build
+   loading.asm.bak             | Backup of an older loading.asm            | Editor backup — never included
+   mapstuff.asm.bak            | Backup of an older mapstuff.asm (103 KB!) | Editor backup — never included
+   player.asm.bak              | Backup of an older player.asm (110 KB)    | Editor backup — never included
+   spritetools.asm.bak         | Backup of an older spritetools.asm        | Editor backup — never included
+  ──────
+  ### ⚠️ CANDIDATE — Could remove with minor code changes
+
+   File           | What it does                                   | Effort to remove
+  ----------------|------------------------------------------------|-------------------------------------------------
+   bubble.asm     | Underwater air-bubble animation (sprite 6).    | Low: comment out the 2 bsr calls in
+                  | Calls BubbleTick from GameRun and BubbleInit   | gamestatus.asm/levelutils.asm and remove the
+                  | from LevelInit — but both immediately return   | include from main.asm
+                  | since AssetSet is never 3                      |
+   undo.asm       | 15-move undo history — triggered by F9 /       | Medium: remove bsr UndoMove from player.asm and
+                  | joystick hold. Fully functional, just a design | UndoSave calls throughout. Saves ~12 KB of code
+                  | choice whether you want undo in your game      | + RAM
+   vhs_rewind.asm | VHS scanline distortion that plays during undo | Remove if removing undo — trivial once undo is
+                  | rewind. Depends on undo.asm                    | out
