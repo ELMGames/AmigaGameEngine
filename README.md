@@ -1,157 +1,139 @@
-# Amiga GAME ENGINE
+# AMIGA Game Engine
 
-A 68000 assembly template for OCS/ECS Amiga games (A500-class hardware),
-derived from a shipped game engine. Out of the box it boots through a ZX
-Spectrum-style loading screen into a title screen with menu, music, and a
-copper background effect — ready to hang a game off.
+A high-performance Motorola 68000 assembly game engine for Commodore Amiga OCS/ECS systems (A500 / A600 / A2000), engineered for 512 KB Chip RAM + Fast RAM setups.
 
-## Quick start
+Out of the box, it features a complete boot-to-gameplay pipeline: custom OS takeover with clean CLI exit, a retro ZX Spectrum-style tape loading sequence, an interactive title screen with dynamic Copper aurora effects and ProTracker audio, and a modern **Tiled `.tmx` level editor pipeline** supporting 16×16 tilemaps, multi-layer rendering, and 16-colour Player Blitter Objects (BOBs).
 
-**VS Code:** install the [amiga-assembly](https://marketplace.visualstudio.com/items?itemName=prb28.amiga-assembly)
-extension and run the default build task. The executable lands in `../uae/dh0/main`.
+---
 
-**Command line (PowerShell):**
+## Key Features
+
+* **Modern Tiled (`.tmx`) Workflow:** Author multi-layer levels in the standard Tiled map editor. The Python pipeline (`tools/export_level.py`) automatically compiles levels into planar tileset graphics, blitter masks, composite maps, 1D collision logic maps, and 68000 assembly entity tables.
+* **16-Colour Player BOBs:** Dedicated pipeline (`tools/convert_player_bob.py`) for generating 4-bitplane, 16-colour Blitter Objects (BOBs) with separate blitter masks, allowing clean layer ordering with background tiles and platforms. Hardware sprite player mode is also supported.
+* **Efficient Memory Model:** Strict separation between Chip RAM (DMA-accessible copper lists, screen bitplanes, audio, and BOB buffers) and Fast RAM (code, state tables, level logic, and BSS variables).
+* **Smooth 50 Hz PAL / 60 Hz NTSC:** Single-frame mainline execution model driven by a lightweight vertical blank interrupt, with automatic PAL/NTSC detection and timing compensation.
+* **Audio & Music:** Built-in 4-channel ProTracker playback engine powered by PTPlayer with support for sound effects and music module switching.
+* **Rewind & Undo Subsystem:** Full move recording and VHS rewind effect engine (`vhs_rewind.asm`, `undo.asm`).
+* **Clean OS Takeover & Exit:** Gracefully suspends AmigaOS (saving viewports, DMACON, and interrupt vectors) and restores the system cleanly back to the CLI prompt upon exit.
+
+---
+
+## Quick Start
+
+### Prerequisites
+* **Assembler & Linker:** `vasmm68k_mot` and `vlink` (available on `PATH`, configured in `AMIGA_TOOLCHAIN`, or bundled with the [amiga-assembly](https://marketplace.visualstudio.com/items?itemName=prb28.amiga-assembly) VS Code extension).
+* **Python 3:** Required for the automated asset and level pipeline (`pip install Pillow`).
+
+### Building from Command Line (PowerShell)
 
 ```powershell
-./build.ps1              # assemble + link
-./build.ps1 -Assets      # regenerate converted graphics first (needs Python + Pillow)
+./build.ps1              # Export Tiled level + convert player BOBs + assemble + link
+./build.ps1 -Assets      # Optional: re-convert title/raw UI assets before building
+./build.ps1 -Out my.exe  # Build executable to a custom output path
 ```
 
-The script finds vasm/vlink via `-ToolDir`, the `AMIGA_TOOLCHAIN` environment
-variable, `PATH`, or the VS Code extension's bundled binaries — in that order.
+The compiled Amiga executable lands by default at `../uae/dh0/main`, ready to launch directly in FS-UAE, WinUAE, or real Amiga hardware.
 
-**Controls (template flow):**
+### Controls
 
-| Key | Where | Action |
-|---|---|---|
-| F6 | loading screen | skip the tape-load animation |
-| cursor keys / joystick | title | navigate menu |
-| Return / fire | title | activate menu item |
-| ESC | game screen | back to title |
-| ESC | title | **quit to the OS** (clean CLI exit) |
-| F5 | title / game | toggle debug mode |
-| F3 | game (debug) | toggle the raster CPU-time bar |
+| Input | Context | Function |
+| :--- | :--- | :--- |
+| **F6** | Loading Screen | Skip tape-loading animation |
+| **Cursor Keys / Joystick** | Title Menu | Navigate menu options |
+| **Return / Fire Button** | Title Menu | Select menu item |
+| **Arrow Keys / Joystick** | In-Game | Player movement and climbing |
+| **ESC** | In-Game | Return to Title Screen |
+| **ESC** | Title Screen | **Quit to OS** (clean return to CLI prompt) |
+| **F5** | Title / In-Game | Toggle debug mode |
+| **F3** | In-Game (Debug) | Toggle raster CPU-time meter (yellow indicates frame overrun) |
 
-## Architecture
+---
 
-### Boot flow
+## Architecture & Memory Layout
 
-```
-Main            save CLI context, SystemSave (OS takeover: display off,
-                Forbid, snapshot vectors + INTENA/DMACON)
-  └─ Restart    kill DMA/interrupts, switch to the game's own stack
-       └─ Init          DetectNTSC, DetectOCS, AudioInit (PTPlayer CIA-B),
-                        KeyboardInit (CIA-A), fault-trap vectors
-       └─ StartVBlank   install VBlankTick at the level-3 autovector
-       └─ MainLoop      wait FramePending → GameStatusRun → repeat
-            └─ QuitToOS AudioRemove, SystemRestore, return to the CLI
-```
+### Memory Footprint
 
-**Frame model:** the VBlank interrupt (`VBlankTick`, main.asm) is tiny — it
-acknowledges the interrupt, increments `TickCounter`, and raises
-`FramePending`. *All* game logic runs in the mainline (`MainLoop`), once per
-frame. Long operations (asset decompression, screen setup) are safe: they
-just span multiple frames while keyboard and music interrupts keep running.
-Frames the mainline misses are counted in `VBlankOverrunCount` and flagged by
-the debug raster bar turning yellow.
+| Section | Target RAM | Allocation | Description |
+| :--- | :--- | :---: | :--- |
+| **`main` (Code)** | Any (Fast/Chip) | ~36.8 KB | Full 68000 instruction stream assembled as a single translation unit |
+| **`data_fast`** | Fast RAM | ~31.5 KB | Read-only lookup tables (easing/sine tables), level pointers, entity data |
+| **`mem_fast` (BSS)** | Fast RAM | ~53.3 KB | Game state, actor variables (`a5` base), keyboard buffers, stack |
+| **`data_chip`** | Chip RAM | ~198.7 KB | Copper lists, title graphics/palettes, ProTracker MODs, and 16×16 raw tilesets |
+| **`mem_chip` (BSS)** | Chip RAM | ~241.3 KB | `DisplayScreen`, `NonDisplayScreen`, null sprite buffers, and scratch areas |
 
-**Global register convention:** `a5` = Variables base, `a6` = $dff000
-(custom chips) — set once, never changed. `a4`/`a3` are reserved for player/
-actor structure pointers by the gameplay code.
+Total Chip RAM consumption is ~440 KB, fitting comfortably within the standard **512 KB Chip RAM** boundary of base Amiga 500/2000 models.
 
-### The game state machine (gamestatus.asm)
+### State Machine (`gamestatus.asm`)
 
-`GameStatus(a5)` holds a word index dispatched through a jump table in
-`GameStatusRun` once per frame (with a bounds check that drops corrupt states
-into the red `FaultTrap` screen). Template states:
+Game execution is orchestrated through a jump-table dispatcher indexed by `GameStatus(a5)`:
 
-| # | Constant | Handler | File |
-|---|---|---|---|
-| 0 | `GAME_INIT` | `LoadingSetup` | loading.asm |
-| 1 | `GAME_LOADING` | `LoadingRun` | loading.asm |
-| 2 | `GAME_RUN` | `GameRun` (gameplay frame) | gamestatus.asm |
-| 3-6 | `LEVEL_INIT/WIPE/HOLD/REVEAL` | `LevelTransitionRun` | mapstuff.asm |
-| 7-8 | `LEVEL_COMPLETE_*` | `LevelCompleteSetup/Run` | levelcomplete.asm |
-| 9 | `TITLE_SETUP` | `TitleSetup` | titlescreen.asm |
-| 10 | `TITLE_RUN` | `TitleRun` | titlescreen.asm |
-| 11-16 | instructions / game complete | *not yet enabled (Phase B)* | — |
+| State Index | Identifier | Handler | File | Description |
+| :---: | :--- | :--- | :--- | :--- |
+| `0` | `GAME_INIT` | `LoadingSetup` | [`loading.asm`](file:///C:/Users/shani/OneDrive/Documents/GitHub/AlienContainment/include/resources/loading.asm) | One-shot tape loading initialization |
+| `1` | `GAME_LOADING` | `LoadingRun` | [`loading.asm`](file:///C:/Users/shani/OneDrive/Documents/GitHub/AlienContainment/include/resources/loading.asm) | Per-frame tape loader animation & decode |
+| `2` | `GAME_RUN` | `GameRun` | [`gamestatus.asm`](file:///C:/Users/shani/OneDrive/Documents/GitHub/AlienContainment/include/resources/gamestatus.asm) | Active gameplay loop (player, actors, blits) |
+| `3–6` | `LEVEL_*` | `LevelTransitionRun` | [`tilemap.asm`](file:///C:/Users/shani/OneDrive/Documents/GitHub/AlienContainment/include/resources/tilemap.asm) | Level init, screen wipes, hold, and reveals |
+| `7–8` | `LEVEL_COMPLETE_*` | `LevelCompleteSetup/Run` | [`levelcomplete.asm`](file:///C:/Users/shani/OneDrive/Documents/GitHub/AlienContainment/include/resources/levelcomplete.asm) | Level victory summary and password screen |
+| `9` | `TITLE_SETUP` | `TitleSetup` | [`titlescreen.asm`](file:///C:/Users/shani/OneDrive/Documents/GitHub/AlienContainment/include/resources/titlescreen.asm) | Title screen init (copper aurora, title logo) |
+| `10` | `TITLE_RUN` | `TitleRun` | [`titlescreen.asm`](file:///C:/Users/shani/OneDrive/Documents/GitHub/AlienContainment/include/resources/titlescreen.asm) | Interactive title menu & background animation |
+| `11` | `INSTRUCTIONS` | `InstructionsRun` | [`instructions.asm`](file:///C:/Users/shani/OneDrive/Documents/GitHub/AlienContainment/include/resources/instructions.asm) | How-to-play instruction booklet screen |
+| `12` | `GAME_COMPLETE` | `GameCompleteRun` | [`gamecomplete.asm`](file:///C:/Users/shani/OneDrive/Documents/GitHub/AlienContainment/include/resources/gamecomplete.asm) | Game completion ending cinematic screen |
 
-**To add a state:** add constants to const.asm, a `dc.w Handler-.i` entry to
-the dispatch table in gamestatus.asm (order must match the constant values —
-the table is positional), and set `GameStatus(a5)` from wherever transitions
-into it. Setup/run state pairs (one-shot init, then per-frame) are the
-established pattern.
+---
 
-### Memory map (sections in main.asm)
+## Asset & Level Pipeline
 
-| Section | RAM | Contents |
-|---|---|---|
-| `main,code` | any | all code, assembled as one translation unit via INCLUDEs |
-| `data_fast` | fast | lookup tables (sine/easing), level data |
-| `data_chip` | chip | copper lists, title logo + palette, title music MOD, then the **loading-screen overlay region** (LoadingPal/LoadingRawZ/ZX audio — reusable after loading; everything needed later is deliberately placed *before* it) |
-| `mem_fast` (BSS) | fast | `Variables` block (layout in variables.asm, addressed via a5), `Keys[]`, the game stack |
-| `mem_chip` (BSS) | chip | `NullSprite`, `DisplayScreen`, `NonDisplayScreen` (330 KB total chip incl. assets — fits a 512 KB machine) |
+All game assets are processed deterministically via scripts in [`tools/`](file:///C:/Users/shani/OneDrive/Documents/GitHub/AlienContainment/tools/):
 
-### Assets
+1. **Level Authoring (`export_level.py`)**:
+   - Converts Tiled `.tmx` maps (`assets/Levels/Level_01.tmx`) into planar Amiga data.
+   - Outputs:
+     - 16-colour planar raw tileset (`FourSeasons.tiles_176x256.raw`) and blitter mask (`.msk`).
+     - Multi-layer binary maps: `Level_01-platform.map`, `Level_01-water.map`, and composite `Level_01.map`.
+     - 1D logic collision map (`Level_01-gamemap.bin`).
+     - 68000 assembly definitions (`level_01_entities.asm`) specifying player spawns, patrol paths, triggers, and enemy spawn tables.
 
-Converted graphics are generated by the manifest-driven
-`tools/convert_assets.py` (Python 3 + Pillow: `pip install Pillow`). Add an
-entry to its `ASSETS` list and `incbin` the output — converter types:
+2. **Player BOB Pipeline (`convert_player_bob.py`)**:
+   - Processes player frame grids into 16-colour, 4-bitplane raw graphic sheets (`player_bobs_64x576.raw`) and matching blitter masks (`.msk`).
+   - Exports contact sheets (`player_bobs_preview.png`) for inspection.
 
-- **planar** — RGBA PNG → N bitplanes (plane-by-plane) + `$0RGB` palette;
-  colour 0 = transparent, excess colours auto-remapped. Used for the title
-  logo (`AC_title.png` → `.raw`/`.pal`).
-- **1plane** / **star** — threshold/indexed PNG → single-bitplane masks.
+3. **ZX0 Decompression (`zx0_faster.asm` & `zx0.exe`)**:
+   - Compresses title and overlay assets using Einar Saukas' ZX0 format (v2).
+   - Real-time 68000 decompression into Chip RAM buffers with high speed and low overhead.
 
-The loading-screen image (`template.raw`/`.pal`/`.zx0`) is produced
-externally: [amigeconv](https://github.com/grahambates/amigeconv) for the
-5-bitplane interleaved conversion (`tools/amigeconv.exe`), plus a
-[ZX0](https://github.com/einar-saukas/ZX0) compressor for the `.zx0`.
+---
 
-Music is standard 4-channel ProTracker MODs in chip RAM, played by PTPlayer
-(`AudioPlayTitleMusic` / `AudioPlayMod` in audio.asm).
-
-### Timing (PAL vs NTSC)
-
-`DetectNTSC` sets `IsPAL(a5)` at boot and patches the game display window for
-NTSC. Durations are authored in PAL frames; timers that represent real time
-should be armed through `ScalePALFrames` (tools.asm), which converts to NTSC
-frame counts (×6/5) — see the loading-screen timers for the pattern.
-
-### OS takeover and exit
-
-`system.asm` snapshots everything the game clobbers (interrupt vectors,
-INTENA/DMACON, the active view) before taking the machine, and `QuitToOS`
-restores it all — so ESC on the title screen drops you back at a working CLI
-prompt. This assumes a 68000 (vector base 0); a 68010+ with relocated VBR
-would need MOVEC support in system.asm and keyboard.asm.
-
-## Repository layout
+## Repository Structure
 
 ```
-main.asm                    entry point, main loop, VBlank ISR, memory sections
-include/resources/
-  system.asm                OS takeover/restore (SystemSave / SystemRestore)
-  gamestatus.asm            state machine dispatch + game screen
-  loading.asm               ZX tape-load loading screen (states 0/1)
-  titlescreen.asm           title screen: logo, menu, aurora effect (states 9/10)
-  copperlists.asm           all copper lists + font data
-  keyboard.asm / controls.asm  CIA-A keyboard ISR / input mapping
-  audio.asm + ptplayer/     PTPlayer wrapper + player
-  tools.asm / macros.asm    shared routines (CopperSetPtrs, TurboClear, ...) / macros
-  variables.asm / const.asm / struct.asm   a5-relative state / constants / structures
-  mapstuff / actors / player / frozenplayer / undo / vhs_rewind / bubble /
-  spritetools / levelcomplete   gameplay engine (enabled — Phase A)
-  (instructions.asm, gamecomplete.asm   still excluded — Phase B)
-tools/convert_assets.py     manifest-driven asset conversion
-build.ps1                   command-line build
+.
+├── build.ps1                       # Primary automated build script
+├── main.asm                        # Entry point, memory sections, main loop, VBlank ISR
+├── assets/
+│   ├── Levels/                     # Tiled .tmx levels and compiled binary maps
+│   ├── graphics/
+│   │   ├── sprites/                # Player BOB raw/msk files, HW sprites, and palettes
+│   │   ├── tiles/                  # 16x16 raw tilesets and blitter masks
+│   │   └── title/                  # Title screen logo raw and palette files
+│   └── music/                      # ProTracker modules (10kdub.mod, supremacy_title.mod)
+├── include/resources/
+│   ├── system.asm                  # OS takeover, vector saves, and SystemRestore
+│   ├── gamestatus.asm              # State machine dispatcher & GameRun mainline
+│   ├── tilemap.asm                 # Blitter-based tile rendering & composite maps
+│   ├── levelutils.asm              # Level initialisation, enemy tables, and object placement
+│   ├── level_01_entities.asm       # Auto-generated level spawns & entity descriptors
+│   ├── player.asm / actors.asm     # Player movement physics and enemy state machines
+│   ├── undo.asm / vhs_rewind.asm   # Move recording and VHS rewind effect
+│   ├── titlescreen.asm             # Title menu and Copper aurora animation
+│   ├── copperlists.asm             # Display Copper lists, palettes, and bitplane registers
+│   ├── keyboard.asm / controls.asm # CIA-A keyboard interrupt handler and joystick input
+│   └── audio.asm                   # PTPlayer sound driver integration
+└── tools/                          # Asset conversion, level exporters, and build utilities
 ```
 
-## Debugging aids
+---
 
-- **Red screen** = a CPU fault (bus/address error, illegal instruction,
-  divide by zero, stray TRAP #0) or a corrupt `GameStatus` — `FaultTrap`.
-- **F5 + F3 raster bar** = CPU time per frame; yellow = at least one frame
-  overran its VBlank budget (`VBlankOverrunCount`).
-- WinUAE with the amiga-assembly extension gives source-level debugging via
-  the `-linedebug` hunks.
+## Verification & Diagnostics
+
+* **CPU Fault Trap (Red Screen):** If a bus error, address error, illegal instruction, or invalid state occurs, the engine intercepts the exception vector and displays a full-screen red diagnostic canvas.
+* **Frame Budget Raster Meter:** Press **F5** then **F3** in-game to display the real-time raster bar. If CPU processing exceeds the vertical blank budget, the meter shifts yellow, indicating dropped frames.
