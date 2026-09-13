@@ -48,8 +48,8 @@ BLOCK_PUSH        = 3
 BLOCK_DIRT        = 4
 BLOCK_SOLID       = 5
 BLOCK_ENEMYFLOAT  = 6
-BLOCK_MILLIESTART = 7
-BLOCK_MOLLYSTART  = 8
+BLOCK_PLAYERSTART = 7
+BLOCK_MILLIESTART = BLOCK_PLAYERSTART
 BLOCK_COCOON      = 11
 BLOCK_ACID        = 12
 
@@ -120,7 +120,7 @@ def sanitize_label(name: str) -> str:
     return clean.strip("_")
 
 
-def parse_tile_layer(layer_elem, width: int, height: int, firstgid: int = 1) -> list:
+def parse_tile_layer(layer_elem, width: int, height: int, tilesets: list = None, firstgid: int = 1) -> list:
     """Decode tile layer data across CSV, base64, zlib, gzip, or XML."""
     data_elem = layer_elem.find("data")
     if data_elem is None:
@@ -133,6 +133,12 @@ def parse_tile_layer(layer_elem, width: int, height: int, firstgid: int = 1) -> 
         # Tiled GID 0 = empty space (0).
         # GID >= firstgid maps to 0-based tileset index: g - firstgid
         if g <= 0:
+            return 0
+        if tilesets:
+            for ts in tilesets:
+                fg = ts["firstgid"]
+                if g >= fg:
+                    return g - fg
             return 0
         return max(0, g - firstgid)
 
@@ -436,15 +442,22 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
     tileset_attrs = {}
     tileset_info = None
     project_root = Path(__file__).resolve().parent.parent
-    firstgid = 1
+    tilesets = []
     for ts_elem in root.findall("tileset"):
-        firstgid = int(ts_elem.attrib.get("firstgid", 1))
+        fg = int(ts_elem.attrib.get("firstgid", 1))
+        tilesets.append({
+            "firstgid": fg,
+            "element": ts_elem
+        })
         attrs = parse_tileset_attributes(tmx_dir, ts_elem)
         for local_id, attr_val in attrs.items():
             tileset_attrs[local_id] = attr_val
-        ts_info = convert_tileset_image(tmx_dir, ts_elem, project_root)
-        if ts_info:
-            tileset_info = ts_info
+        if not tileset_info:
+            ts_info = convert_tileset_image(tmx_dir, ts_elem, project_root)
+            if ts_info:
+                tileset_info = ts_info
+
+    tilesets.sort(key=lambda t: t["firstgid"], reverse=True)
 
     # Parse tile layers
     tile_layers = []
@@ -453,7 +466,7 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
     for layer in root.findall("layer"):
         layer_name = layer.attrib.get("name", "layer").strip()
         layer_slug = sanitize_label(layer_name)
-        tiles = parse_tile_layer(layer, width, height, firstgid=firstgid)
+        tiles = parse_tile_layer(layer, width, height, tilesets=tilesets)
         non_zero = sum(1 for t in tiles if t != 0)
         
         tile_layers.append({
@@ -507,38 +520,16 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
             row_start = max(0, min(height - 1, int(round(y / 16.0))))
             row_end = max(0, min(height - 1, int(round((y + max(h, 1.0)) / 16.0)) - 1))
 
-            # Identify Player Start (Price/Millie = Player 1, Cole/Molly = Player 2)
-            is_player2 = (
-                "player2" in tag or "player2" in name_lower or
-                "molly" in tag or "molly" in name_lower or
+            # Identify Player Spawn
+            is_player = (
+                "player" in tag or "player" in name_lower or
+                "millie" in tag or "millie" in name_lower or
+                "price" in tag or "price" in name_lower or
                 "cole" in tag or "cole" in name_lower or
-                props.get("player") == "2"
-            )
-            is_player1 = (
-                not is_player2 and (
-                    "player" in tag or "player" in name_lower or
-                    "millie" in tag or "millie" in name_lower or
-                    "price" in tag or "price" in name_lower or
-                    props.get("player") == "1"
-                )
+                "spawn" in tag or "spawn" in name_lower
             )
 
-            if is_player2:
-                p2_col = int(round(x)) // 16
-                p2_row = int(round(y / 16.0))
-                p2_xdec = int(round(x)) % 16
-                p2_dir_raw = props.get("direction", props.get("dir", props.get("facing", 1)))
-                p2_dir = -1 if str(p2_dir_raw).lower() in ("left", "-1", "0") else 1
-                player2_start["x"] = int(round(x))
-                player2_start["y"] = int(round(y))
-                player2_start["col"] = max(0, min(width - 1, p2_col))
-                player2_start["row"] = max(0, min(height - 1, p2_row))
-                player2_start["xdec"] = p2_xdec
-                player2_start["dir"] = p2_dir
-                player2_found = True
-                print(f"      -> Player 2 Spawn: ({x}, {y}) -> Col={player2_start['col']}, Row={player2_start['row']}, XDec={p2_xdec}, dir={p2_dir}")
-
-            elif is_player1:
+            if is_player:
                 p1_col = int(round(x)) // 16
                 p1_row = int(round(y / 16.0))
                 p1_xdec = int(round(x)) % 16
@@ -550,7 +541,7 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
                 player_start["row"] = max(0, min(height - 1, p1_row))
                 player_start["xdec"] = p1_xdec
                 player_start["dir"] = p1_dir
-                print(f"      -> Player 1 Spawn: ({x}, {y}) -> Col={player_start['col']}, Row={player_start['row']}, XDec={p1_xdec}, dir={p1_dir}")
+                print(f"      -> Player Spawn: ({x}, {y}) -> Col={player_start['col']}, Row={player_start['row']}, XDec={p1_xdec}, dir={p1_dir}")
 
             # Identify Enemies
             elif "enemy" in tag or "patrol" in tag or "flyer" in tag or "crawler" in tag or "enemy" in name_lower:
@@ -751,12 +742,7 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
     # 6. Player spawn (if spawn tile is solid, stand on the row directly above)
     if gamemap[player_start["row"] * width + player_start["col"]] == BLOCK_SOLID and player_start["row"] > 0:
         player_start["row"] -= 1
-    gamemap[player_start["row"] * width + player_start["col"]] = BLOCK_MILLIESTART
-
-    if player2_found:
-        if gamemap[player2_start["row"] * width + player2_start["col"]] == BLOCK_SOLID and player2_start["row"] > 0:
-            player2_start["row"] -= 1
-        gamemap[player2_start["row"] * width + player2_start["col"]] = BLOCK_MOLLYSTART
+    gamemap[player_start["row"] * width + player_start["col"]] = BLOCK_PLAYERSTART
 
 
     # =========================================================================
@@ -835,6 +821,7 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
 
     has_bg = any("bg" in slug.lower() or "background" in slug.lower() for slug, _, _ in exported_map_files)
     has_plat = any("plat" in slug.lower() or "platform" in slug.lower() for slug, _, _ in exported_map_files)
+    has_fg = any("fg" in slug.lower() or "foreground" in slug.lower() for slug, _, _ in exported_map_files)
     has_water = any("water" in slug.lower() for slug, _, _ in exported_map_files)
     if not has_bg:
         asm_lines.extend([
@@ -844,6 +831,11 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
     if not has_plat:
         asm_lines.extend([
             f"{prefix}_PlatformMap = 0",
+            ""
+        ])
+    if not has_fg:
+        asm_lines.extend([
+            f"{prefix}_ForegroundMap = 0",
             ""
         ])
     if not has_water:
@@ -1022,15 +1014,18 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
             row_entries.append(attr_name)
         asm_lines.append("    dc.b    " + ", ".join(row_entries))
 
-    # Identify background, platform, and water layer labels
+    # Identify background, platform, foreground, and water layer labels
     bg_map_label = "0"
     plat_map_label = "0"
+    fg_map_label = "0"
     water_map_label = "0"
     for slug, _, _ in exported_map_files:
         if "bg" in slug.lower() or "background" in slug.lower():
             bg_map_label = f"{prefix}_{slug.capitalize()}Map"
         elif "plat" in slug.lower() or "platform" in slug.lower():
             plat_map_label = f"{prefix}_{slug.capitalize()}Map"
+        elif "fg" in slug.lower() or "foreground" in slug.lower():
+            fg_map_label = f"{prefix}_{slug.capitalize()}Map"
         elif "water" in slug.lower():
             water_map_label = f"{prefix}_{slug.capitalize()}Map"
 
@@ -1083,6 +1078,7 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
         asm_line("dc.w", f"{width}, {height}", "Map width, height in tiles"),
         asm_line("dc.l", bg_map_label, "Background layer binary pointer (0 if none)"),
         asm_line("dc.l", plat_map_label, "Platform layer binary pointer (0 if none)"),
+        asm_line("dc.l", fg_map_label, "Foreground layer binary pointer (0 if none)"),
         asm_line("dc.l", water_map_label, "Water layer binary pointer (0 if none)"),
         asm_line("dc.w", f"{len(tile_layers)}, 0", "Number of ordered tile layers, reserved"),
         asm_line("dc.l", f"{prefix}_LayerList", "Ordered layer list pointer (TMX order)"),

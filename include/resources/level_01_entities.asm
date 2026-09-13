@@ -8,27 +8,32 @@ Level_01_MapHeight:       dc.w    42
 Level_01_MapSize:         dc.w    840
 Level_01_TileWidth:       dc.w    16
 Level_01_TileHeight:      dc.w    16
-Level_01_LayerCount:      dc.w    2
+Level_01_LayerCount:      dc.w    3
 
 ;------------------------------------------------------------------------------
 ; Tilemap Layer Binaries
 ;------------------------------------------------------------------------------
-Level_01_PlatformMap:
-    incbin     "assets/Levels/Level_01-platform.map"
+Level_01_BackgroundMap:
+    incbin     "assets/Levels/Level_01-background.map"
+    even
+
+Level_01_ForegroundMap:
+    incbin     "assets/Levels/Level_01-foreground.map"
     even
 
 Level_01_WaterMap:
     incbin     "assets/Levels/Level_01-water.map"
     even
 
-Level_01_BackgroundMap = 0
+Level_01_PlatformMap = 0
 
 ;------------------------------------------------------------------------------
 ; Ordered Tilemap Layer Table (in TMX document order)
 ; Format: Pointers to each layer's binary map, terminated by 0
 ;------------------------------------------------------------------------------
 Level_01_LayerList:
-    dc.l    Level_01_PlatformMap
+    dc.l    Level_01_BackgroundMap
+    dc.l    Level_01_ForegroundMap
     dc.l    Level_01_WaterMap
     dc.l    0                           ; Null termination
 
@@ -146,7 +151,7 @@ Level_01_TileAttributesTable:
     dc.b    ATTR_SOLID, ATTR_SOLID, ATTR_SOLID, ATTR_SOLID, ATTR_SOLID, ATTR_SOLID, ATTR_SOLID, ATTR_SOLID, ATTR_SOLID, ATTR_SOLID, ATTR_SOLID, ATTR_SOLID, ATTR_SOLID, ATTR_SOLID, ATTR_SOLID, ATTR_SOLID
     dc.b    ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY
     dc.b    ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY
-    dc.b    ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY
+    dc.b    ATTR_EMPTY, ATTR_LADDER, ATTR_LADDER, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY
     dc.b    ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY
     dc.b    ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY
     dc.b    ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY, ATTR_EMPTY
@@ -194,10 +199,11 @@ Level_01_Def:
 
     ; --- Geometry & Binary Maps ---
     dc.w    20, 42                      ; Map width, height in tiles
-    dc.l    0                           ; Background layer binary pointer (0 if none)
-    dc.l    Level_01_PlatformMap        ; Platform layer binary pointer (0 if none)
+    dc.l    Level_01_BackgroundMap      ; Background layer binary pointer (0 if none)
+    dc.l    0                           ; Platform layer binary pointer (0 if none)
+    dc.l    Level_01_ForegroundMap      ; Foreground layer binary pointer (0 if none)
     dc.l    Level_01_WaterMap           ; Water layer binary pointer (0 if none)
-    dc.w    2, 0                        ; Number of ordered tile layers, reserved
+    dc.w    3, 0                        ; Number of ordered tile layers, reserved
     dc.l    Level_01_LayerList          ; Ordered layer list pointer (TMX order)
     dc.l    Level_01_GameMap            ; 1D collision GameMap binary pointer
 

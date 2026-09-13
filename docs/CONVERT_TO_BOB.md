@@ -67,7 +67,7 @@ Both the player and enemies will share the identical triple-buffer restoration a
       ├─► 4. TilemapUpdateWater
       │      Advances water scanline accumulator and updates wave graphics in both screens.
       │
-      ├─► 5. TilemapDrawPlayerBob
+      ├─► 5. TilemapDrawPlayer
       │      Cookie-cuts player into DisplayScreen (over ladders and platforms).
       │      Applies 50% cyan dither stipple if scanlines >= WaterPixelY.
       │
@@ -232,13 +232,13 @@ Add BOB geometry equates:
 
 ```m68k
 ; include/resources/const.asm
-PLAYER_BOB_WIDTH          = 16    ; player frame width in pixels
-PLAYER_BOB_HEIGHT         = 24    ; player frame height in pixels
-PLAYER_BOB_PLANES         = 4     ; 4 bitplanes
+PLAYER_WIDTH          = 16    ; player frame width in pixels
+PLAYER_HEIGHT         = 24    ; player frame height in pixels
+PLAYER_PLANES         = 4     ; 4 bitplanes
 PLAYER_SHEET_WIDTH        = 64    ; sheet width in pixels
 PLAYER_SHEET_BYTES        = 8     ; 64 / 8 = 8 bytes per plane
-PLAYER_ROW_STRIDE         = PLAYER_SHEET_BYTES*PLAYER_BOB_PLANES ; 32 bytes per row
-PLAYER_FRAME_STRIDE       = PLAYER_ROW_STRIDE*PLAYER_BOB_HEIGHT  ; 768 bytes per frame row (4 frames)
+PLAYER_ROW_STRIDE         = PLAYER_SHEET_BYTES*PLAYER_PLANES ; 32 bytes per row
+PLAYER_FRAME_STRIDE       = PLAYER_ROW_STRIDE*PLAYER_HEIGHT  ; 768 bytes per frame row (4 frames)
 ```
 
 ### 4.3 Asset Inclusions (`main.asm`)
@@ -246,11 +246,11 @@ In the `data_chip` section of `main.asm`, replace `PlayerHWSprites` with the BOB
 
 ```m68k
 ; main.asm (data_chip section)
-PlayerBobRaw:
+PlayerRaw:
     incbin     "assets/graphics/sprites/player_bobs_64x288.raw"
     even
 
-PlayerBobMsk:
+PlayerMsk:
     incbin     "assets/graphics/sprites/player_bobs_64x288.msk"
     even
 ```
@@ -307,7 +307,7 @@ TilemapErasePlayer:
     move.w      #SCREEN_WIDTH_BYTE-4,BLTDMOD(a6) ; 40 - 4 = 36 bytes
     move.l      a0,BLTAPT(a6)
     move.l      a1,BLTDPT(a6)
-    move.w      #(PLAYER_BOB_HEIGHT*PLAYER_BOB_PLANES<<6)|2,BLTSIZE(a6) ; 96 rows x 2 words
+    move.w      #(PLAYER_HEIGHT*PLAYER_PLANES<<6)|2,BLTSIZE(a6) ; 96 rows x 2 words
     rts
 
 .erase_1word:
@@ -320,22 +320,22 @@ TilemapErasePlayer:
     move.w      #SCREEN_WIDTH_BYTE-2,BLTDMOD(a6) ; 40 - 2 = 38 bytes
     move.l      a0,BLTAPT(a6)
     move.l      a1,BLTDPT(a6)
-    move.w      #(PLAYER_BOB_HEIGHT*PLAYER_BOB_PLANES<<6)|1,BLTSIZE(a6) ; 96 rows x 1 word
+    move.w      #(PLAYER_HEIGHT*PLAYER_PLANES<<6)|1,BLTSIZE(a6) ; 96 rows x 1 word
 .exit:
     rts
 ```
 
 ---
 
-## 6. Step 4: Cookie-Cut Blit Routine (`TilemapDrawPlayerBob`)
+## 6. Step 4: Cookie-Cut Blit Routine (`TilemapDrawPlayer`)
 
 This routine calculates world-to-screen pixel coordinates, sets up Blitter minterm `$0FCA`, executes the cookie-cut blit over `DisplayScreen`, and applies the 50% water stipple if submerged.
 
-Add `TilemapDrawPlayerBob` to `include/resources/tilemap.asm`:
+Add `TilemapDrawPlayer` to `include/resources/tilemap.asm`:
 
 ```m68k
 ;==============================================================================
-; TilemapDrawPlayerBob  -  Blit player BOB onto DisplayScreen with water depth
+; TilemapDrawPlayer  -  Blit player BOB onto DisplayScreen with water depth
 ;
 ; In:  a4 = pointer to active Player struct
 ;      a5 = Variables base
@@ -343,7 +343,7 @@ Add `TilemapDrawPlayerBob` to `include/resources/tilemap.asm`:
 ; Destroys: d0-d5, a0-a3
 ;==============================================================================
 
-TilemapDrawPlayerBob:
+TilemapDrawPlayer:
     tst.w       Player_Status(a4)
     beq         .culled                 ; inactive player, do not draw
 
@@ -369,19 +369,19 @@ TilemapDrawPlayerBob:
     bgt         .culled
     cmp.w       #0,d1
     blt         .culled
-    cmp.w       #LEVEL_SCREEN_HEIGHT-PLAYER_BOB_HEIGHT,d1
+    cmp.w       #LEVEL_SCREEN_HEIGHT-PLAYER_HEIGHT,d1
     bgt         .culled
 
     ; Camera viewport culling: CameraY - 24 <= Y <= CameraY + 224
     move.w      TilemapCameraY(a5),d2
-    sub.w       #PLAYER_BOB_HEIGHT,d2
+    sub.w       #PLAYER_HEIGHT,d2
     cmp.w       d2,d1
     blt         .culled
-    add.w       #216+PLAYER_BOB_HEIGHT,d2
+    add.w       #216+PLAYER_HEIGHT,d2
     cmp.w       d2,d1
     bgt         .culled
 
-    ; 4. Calculate Source Frame Pointer in PlayerBobRaw / PlayerBobMsk
+    ; 4. Calculate Source Frame Pointer in PlayerRaw / PlayerMsk
     ; Frame index = Player_SpriteOffset + AnimFrame
     move.w      Player_SpriteOffset(a4),d2
     add.w       Player_AnimFrame(a4),d2 ; d2 = frame index (0..47)
@@ -395,8 +395,8 @@ TilemapDrawPlayerBob:
     add.w       d2,d2                   ; d2 = col * 2 bytes
     add.l       d2,d3                   ; d3 = total source byte offset
 
-    lea         PlayerBobMsk,a0
-    lea         PlayerBobRaw,a1
+    lea         PlayerMsk,a0
+    lea         PlayerRaw,a1
     adda.l      d3,a0                   ; a0 = mask source
     adda.l      d3,a1                   ; a1 = raw graphic source
 
@@ -438,7 +438,7 @@ TilemapDrawPlayerBob:
     move.l      a2,BLTCPT(a6)           ; Background
     move.l      a2,BLTDPT(a6)           ; Destination
 
-    move.w      #(PLAYER_BOB_HEIGHT*PLAYER_BOB_PLANES<<6)|2,BLTSIZE(a6) ; 96 rows x 2 words
+    move.w      #(PLAYER_HEIGHT*PLAYER_PLANES<<6)|2,BLTSIZE(a6) ; 96 rows x 2 words
     bra.s       .record_drawn
 
 .blit_aligned:
@@ -458,7 +458,7 @@ TilemapDrawPlayerBob:
     move.l      a2,BLTCPT(a6)           ; Background
     move.l      a2,BLTDPT(a6)           ; Destination
 
-    move.w      #(PLAYER_BOB_HEIGHT*PLAYER_BOB_PLANES<<6)|1,BLTSIZE(a6) ; 96 rows x 1 word
+    move.w      #(PLAYER_HEIGHT*PLAYER_PLANES<<6)|1,BLTSIZE(a6) ; 96 rows x 1 word
 
 .record_drawn:
     move.w      d0,Player_PrevX(a4)
@@ -469,7 +469,7 @@ TilemapDrawPlayerBob:
     move.w      WaterPixelY(a5),d2      ; d2 = WaterPixelY
     bmi         .exit                   ; if no water (< 0), dry
     move.w      d1,d3                   ; d3 = player top Y
-    add.w       #PLAYER_BOB_HEIGHT-1,d3 ; d3 = player bottom scanline
+    add.w       #PLAYER_HEIGHT-1,d3 ; d3 = player bottom scanline
     cmp.w       d2,d3
     blt         .exit                   ; bottom < WaterPixelY -> completely dry!
 
@@ -481,7 +481,7 @@ TilemapDrawPlayerBob:
     bne.s       .submerge_2words
 
     ; --- 1 Word Wide Stipple (Aligned) ---
-    move.w      #PLAYER_BOB_HEIGHT-1,d7 ; 24 scanlines
+    move.w      #PLAYER_HEIGHT-1,d7 ; 24 scanlines
     movea.l     a2,a0
 .loop_1w:
     cmp.w       d2,d1                   ; scanline Y >= WaterPixelY?
@@ -511,7 +511,7 @@ TilemapDrawPlayerBob:
 
 .submerge_2words:
     ; --- 2 Words Wide Stipple (Shifted) ---
-    move.w      #PLAYER_BOB_HEIGHT-1,d7 ; 24 scanlines
+    move.w      #PLAYER_HEIGHT-1,d7 ; 24 scanlines
     movea.l     a2,a0
 .loop_2w:
     cmp.w       d2,d1                   ; scanline Y >= WaterPixelY?
@@ -560,7 +560,7 @@ TilemapDrawPlayerBob:
 
 ## 7. Step 5: Game Loop Integration (`gamestatus.asm`)
 
-In `include/resources/gamestatus.asm`, integrate the new `TilemapErasePlayer` and `TilemapDrawPlayerBob` routines inside `GameRun`:
+In `include/resources/gamestatus.asm`, integrate the new `TilemapErasePlayer` and `TilemapDrawPlayer` routines inside `GameRun`:
 
 ```m68k
 ; include/resources/gamestatus.asm - inside GameRun:
@@ -580,7 +580,7 @@ In `include/resources/gamestatus.asm`, integrate the new `TilemapErasePlayer` an
 
     ; 4. Draw player BOB on top of platforms/ladders
     move.l      PlayerPtrs(a5),a4
-    bsr         TilemapDrawPlayerBob    ; blits player; applies water stipple if submerged
+    bsr         TilemapDrawPlayer    ; blits player; applies water stipple if submerged
 
     ; 5. Update and blit dynamic enemies
     bsr         ActionCloudActors

@@ -82,25 +82,38 @@ WINDOW_Y_STOP       = (WINDOW_Y_START+SCREEN_HEIGHT)&$ff
 
 
 ;------------------------------------------------------------------------------
-; Player sprite sheet frame offsets.
+; Player BOB sheet frame offsets.
 ;
-; The hardware sprite data (player_hwsprites.bin) is a flat array of sprite frames.
-; Each frame is SPRITE_SIZE bytes (see below).  These constants are frame-index
-; offsets added to the base sprite index to select the correct animation cell.
+; The player BOB graphics (player_bobs_64x576.raw / .msk) is an interleaved array
+; of 96 frames (4-bitplane, 16x24). These constants are frame-index offsets added
+; to the player's base BobOffset to select the correct animation cel.
 ;
-; Layout (Molly base = 0, Millie base = 48):
-;   +0  .. +3    idle / generic standing
+; Layout (Player 1 / Cole base = 0, Player 2 / Price base = 48):
+;   +0  .. +3    idle right (4 frames)
 ;   +4  .. +11   walk right (8 frames)
-;   +16 .. +19   on-ladder climbing (4 frames)
-;   +19          ladder freeze frame (static when idle on ladder)
+;   +12 .. +15   carry right (4 frames)
+;   +16 .. +19   on-ladder climbing (4 frames, rear view)
+;   +16          ladder idle frame (static neutral pose when idle on ladder)
+;   +20 .. +23   push frames
+;   +24 .. +27   slide / dash frames
 ;   +28 .. +31   falling (4 frames)
-;   PLAYER_SPRITE_LEFT_OFFSET added to mirror the right-facing frames for left
+;   +32 .. +35   idle left (4 frames)
+;   +36 .. +43   walk left (8 frames)
+;   +44 .. +47   fall left (4 frames)
+;   PLAYER_LEFT_OFFSET added for left-facing versions (32)
 ;------------------------------------------------------------------------------
-PLAYER_SPRITE_LEFT_OFFSET   = 32   ; frame offset for left-facing versions
-PLAYER_SPRITE_LADDER_OFFSET = 16   ; frame offset for on-ladder frames
-PLAYER_SPRITE_LADDER_IDLE   = 19   ; single frame used when frozen on ladder
-PLAYER_SPRITE_FALL_OFFSET   = 28   ; frame offset for falling animation
-PLAYER_SPRITE_WALK_OFFSET   = 4    ; frame offset for walking animation
+PLAYER_LEFT_OFFSET   = 32   ; frame offset for left-facing versions
+PLAYER_LADDER_OFFSET = 16   ; frame offset for on-ladder frames
+PLAYER_LADDER_IDLE   = 16   ; single frame used when idle/frozen on ladder
+PLAYER_FALL_OFFSET   = 28   ; frame offset for falling animation
+PLAYER_WALK_OFFSET   = 4    ; frame offset for walking animation
+
+; Backward-compatibility aliases:
+PLAYER_SPRITE_LEFT_OFFSET   = PLAYER_LEFT_OFFSET
+PLAYER_SPRITE_LADDER_OFFSET = PLAYER_LADDER_OFFSET
+PLAYER_SPRITE_LADDER_IDLE   = PLAYER_LADDER_IDLE
+PLAYER_SPRITE_FALL_OFFSET   = PLAYER_FALL_OFFSET
+PLAYER_SPRITE_WALK_OFFSET   = PLAYER_WALK_OFFSET
 
 ;------------------------------------------------------------------------------
 ; Landing impact smoke animation
@@ -328,10 +341,12 @@ BLOCK_PUSH          = 3    ; pushable block - player slides it horizontally
 BLOCK_DIRT          = 4    ; breakable dirt - player destroys it on contact
 BLOCK_SOLID         = 5    ; impassable wall - nothing passes through
 BLOCK_ENEMYFLOAT    = 6    ; floating enemy - not affected by gravity
-BLOCK_MILLIESTART   = 7    ; Millie start position marker in level data
-BLOCK_MOLLYSTART    = 8    ; Molly start position marker in level data
-BLOCK_MILLIELADDER  = 9    ; map cell occupied by Millie while on a ladder
-BLOCK_MOLLYLADDER   = 10   ; map cell occupied by Molly while on a ladder
+BLOCK_PLAYERSTART   = 7    ; Player start position marker in level data
+BLOCK_PLAYERLADDER  = 9    ; map cell occupied by Player while on a ladder
+
+; Backward compatibility aliases:
+BLOCK_MILLIESTART   = BLOCK_PLAYERSTART
+BLOCK_MILLIELADDER  = BLOCK_PLAYERLADDER
 
 ; --- Alien Containment additions (Phase D signature mechanics) ---
 BLOCK_COCOON        = 11   ; pushable alien cocoon - hatches into BLOCK_ENEMYFALL
@@ -422,6 +437,15 @@ ENEMY_FRAME_WIDTH        = 16      ; 16px wide
 ENEMY_FRAME_HEIGHT       = 16      ; 16px high
 ENEMY_FRAMES_PER_ANIM    = 4       ; 4 animation frames per enemy type
 ENEMY_ROW_STRIDE         = ENEMY_FRAME_HEIGHT*ENEMY_SHEET_BYTES*TILEMAP_TILE_PLANES ; 16 * 8 * 4 = 512 bytes per enemy type (4 frames)
+
+; Player Blitter Object (BOB) geometry equates
+PLAYER_WIDTH          = 16    ; player frame width in pixels
+PLAYER_HEIGHT         = 24    ; player frame height in pixels
+PLAYER_PLANES         = 4     ; 4 bitplanes
+PLAYER_SHEET_WIDTH        = 64    ; sheet width in pixels
+PLAYER_SHEET_BYTES        = 8     ; 64 / 8 = 8 bytes per plane
+PLAYER_ROW_STRIDE         = PLAYER_SHEET_BYTES*PLAYER_PLANES ; 32 bytes per row
+PLAYER_FRAME_STRIDE       = PLAYER_ROW_STRIDE*PLAYER_HEIGHT  ; 768 bytes per frame row (4 frames)
 
 ; Runtime Active Enemy Structure Offsets (in Variables block)
 MAX_ACTIVE_ENEMIES       = 16
@@ -617,7 +641,10 @@ KEY_LEFT            = $4f
 KEY_RIGHT           = $4e
 KEY_UP              = $4c
 KEY_DOWN            = $4d
+KEY_A               = $20
+KEY_S               = $21
 KEY_D               = $22
+SLOW_MODE_HOLD_DELAY = 8    ; frames of hold before full-speed advance (~160ms at 50Hz)
 KEY_F1              = $50
 KEY_F2              = $51
 KEY_F3              = $52

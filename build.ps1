@@ -73,4 +73,19 @@ Write-Host "== Linking $Out =="
 & $vlink -bamigahunk -Bstatic -o $Out build/main.o
 if ($LASTEXITCODE -ne 0) { Write-Error "Link failed." }
 
+# Synchronize both workspace and parent uae/dh0/main so WinUAE always loads the latest binary
+$workspaceDh0 = Join-Path $PSScriptRoot "uae/dh0/main"
+$parentDh0 = Join-Path (Split-Path $PSScriptRoot) "uae/dh0/main"
+if (Test-Path $Out) {
+    $outResolved = (Resolve-Path $Out).Path
+    if ((Test-Path (Split-Path $workspaceDh0)) -and $outResolved -ne (Resolve-Path $workspaceDh0 -ErrorAction SilentlyContinue).Path) {
+        Copy-Item -Force $Out $workspaceDh0
+        Write-Host "== Synced to $workspaceDh0 =="
+    }
+    if ((Test-Path (Split-Path $parentDh0)) -and $outResolved -ne (Resolve-Path $parentDh0 -ErrorAction SilentlyContinue).Path) {
+        Copy-Item -Force $Out $parentDh0
+        Write-Host "== Synced to $parentDh0 =="
+    }
+}
+
 Write-Host "== OK: $Out =="

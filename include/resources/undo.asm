@@ -41,7 +41,7 @@ InitUndoBuffer:
 ;==============================================================================
 ; TakeSnapshot  -  Save current game state to the next circular buffer slot
 ;
-; Saves: Millie and Molly (X/Y/Status/Facing/OnLadder), the full GameMap
+; Saves: Player (X/Y/Status/Facing/OnLadder), the full GameMap
 ; (WALL_PAPER_SIZE bytes), and per-slot Actor X/Y/Status for all MAX_ACTORS slots.
 ;
 ; Only call when the game is fully settled (ActionStatus = ACTION_IDLE and
@@ -61,21 +61,13 @@ TakeSnapshot:
     lea         SnapshotBuffer,a0
     add.l       d0,a0                      ; a0 -> snapshot slot to write
 
-    ; Save Millie (5 words)
-    lea         Millie(a5),a1
-    move.w      Player_X(a1),Snap_MillieX(a0)
-    move.w      Player_Y(a1),Snap_MillieY(a0)
-    move.w      Player_Status(a1),Snap_MillieStatus(a0)
-    move.w      Player_Facing(a1),Snap_MillieFacing(a0)
-    move.w      Player_OnLadder(a1),Snap_MillieOnLadder(a0)
-
-    ; Save Molly (5 words)
-    lea         Molly(a5),a1
-    move.w      Player_X(a1),Snap_MollyX(a0)
-    move.w      Player_Y(a1),Snap_MollyY(a0)
-    move.w      Player_Status(a1),Snap_MollyStatus(a0)
-    move.w      Player_Facing(a1),Snap_MollyFacing(a0)
-    move.w      Player_OnLadder(a1),Snap_MollyOnLadder(a0)
+    ; Save Player (5 words)
+    lea         Player(a5),a1
+    move.w      Player_X(a1),Snap_PlayerX(a0)
+    move.w      Player_Y(a1),Snap_PlayerY(a0)
+    move.w      Player_Status(a1),Snap_PlayerStatus(a0)
+    move.w      Player_Facing(a1),Snap_PlayerFacing(a0)
+    move.w      Player_OnLadder(a1),Snap_PlayerOnLadder(a0)
 
     ; Save GameMap: MAX_GAME_MAP_SIZE bytes
     lea         Snap_Map(a0),a2
@@ -131,11 +123,10 @@ TakeSnapshot:
 ;   restore from slot[(head - 1) & mask]  ; the slot before that = pre-move state
 ;
 ; After restore:
-;   - Both players have their tile positions, status, facing, and ladder flag restored
+;   - Player has tile positions, status, facing, and ladder flag restored
 ;   - GameMap is restored
 ;   - All actors have X, Y, Status restored; animation fields zeroed
 ;   - ActorList is rebuilt via RebuildActorList
-;   - PlayerPtrs is updated to reflect the restored active player
 ;   - Display is redrawn: NonDisplayScreen -> DisplayScreen, then DrawStaticActors
 ;   - ActionStatus = ACTION_IDLE; in-flight animation counts cleared
 ;
@@ -173,13 +164,13 @@ UndoMove:
     lea         SnapshotBuffer,a0
     add.l       d0,a0                      ; a0 -> snapshot to restore
 
-    ; Restore Millie
-    lea         Millie(a5),a1
-    move.w      Snap_MillieX(a0),Player_X(a1)
-    move.w      Snap_MillieY(a0),Player_Y(a1)
-    move.w      Snap_MillieStatus(a0),Player_Status(a1)
-    move.w      Snap_MillieFacing(a0),Player_Facing(a1)
-    move.w      Snap_MillieOnLadder(a0),Player_OnLadder(a1)
+    ; Restore Player
+    lea         Player(a5),a1
+    move.w      Snap_PlayerX(a0),Player_X(a1)
+    move.w      Snap_PlayerY(a0),Player_Y(a1)
+    move.w      Snap_PlayerStatus(a0),Player_Status(a1)
+    move.w      Snap_PlayerFacing(a0),Player_Facing(a1)
+    move.w      Snap_PlayerOnLadder(a0),Player_OnLadder(a1)
     clr.w       Player_XDec(a1)
     clr.w       Player_YDec(a1)
     clr.w       Player_Fallen(a1)
@@ -188,29 +179,7 @@ UndoMove:
     clr.w       Player_AnimFrame(a1)
     moveq       #0,d0
     move.w      Player_X(a1),d0
-    mulu        #TILE_WIDTH,d0
-    move.w      d0,Player_PixelX(a1)       ; refresh pixel X cache
-    moveq       #0,d0
-    move.w      Player_Y(a1),d0
     lsl.w       #4,d0
-    move.w      d0,Player_PixelY(a1)       ; refresh pixel Y cache
-
-    ; Restore Molly
-    lea         Molly(a5),a1
-    move.w      Snap_MollyX(a0),Player_X(a1)
-    move.w      Snap_MollyY(a0),Player_Y(a1)
-    move.w      Snap_MollyStatus(a0),Player_Status(a1)
-    move.w      Snap_MollyFacing(a0),Player_Facing(a1)
-    move.w      Snap_MollyOnLadder(a0),Player_OnLadder(a1)
-    clr.w       Player_XDec(a1)
-    clr.w       Player_YDec(a1)
-    clr.w       Player_Fallen(a1)
-    clr.w       Player_ActionCount(a1)
-    clr.w       Player_ActionFrame(a1)
-    clr.w       Player_AnimFrame(a1)
-    moveq       #0,d0
-    move.w      Player_X(a1),d0
-    mulu        #TILE_WIDTH,d0
     move.w      d0,Player_PixelX(a1)       ; refresh pixel X cache
     moveq       #0,d0
     move.w      Player_Y(a1),d0
@@ -274,19 +243,6 @@ UndoMove:
     clr.w       DirtActorsCount(a5)
     clr.w       LevelComplete(a5)
     clr.w       LevelCompleteHold(a5)
-
-    ; Restore PlayerPtrs: [0] = Status=1 (active), [1] = the other player
-    lea         Millie(a5),a1
-    lea         Molly(a5),a2
-    cmp.w       #1,Player_Status(a1)
-    beq         .millie_active
-    move.l      a2,PlayerPtrs(a5)          ; Molly is active
-    move.l      a1,PlayerPtrs+4(a5)
-    bra         .ptrs_done
-.millie_active
-    move.l      a1,PlayerPtrs(a5)          ; Millie is active
-    move.l      a2,PlayerPtrs+4(a5)
-.ptrs_done
 
     ; Rebuild ActorList from restored Actor statuses, then draw all live actors.
     ; DrawStaticActors iterates ActorList and redraws all actors with Dirty=1.

@@ -46,32 +46,29 @@
 ;==============================================================================
 
 ;==============================================================================
-; DrawPlayers  -  Display both player characters each frame
+; DrawPlayers  -  Update active player BOB frame
 ;
-; Millie: always rendered via hardware sprites (ShowSprite handles status
-;         internally — ClearSprites if inactive, ShowSprite if active or frozen).
-; Molly:  rendered via the blitter.
-;         status=2 (frozen) -> DrawPlayerFrozen (static facing/ladder pose)
-;         status=1 (active) -> DrawPlayer        (current animation frame)
-;         status=0 (inactive) -> DrawPlayer      (early-exits, no blit)
+; Note: Actual rendering of player BOBs onto the display screen is performed by
+; TilemapDrawPlayer in tilemap.asm with proper layering between background,
+; player, foreground, and water bitplanes.
 ;
 ; On entry: a5 = Variables base, a6 = CUSTOM base.
 ;==============================================================================
 
 DrawPlayers:
-    move.l     PlayerPtrs(a5),a4
-    bsr        ShowSprite
+    lea        Player(a5),a4
+    bsr        ShowPlayer
     rts
 
 ;==============================================================================
-; DrawPlayer  -  Blit one player's sprite to the screen (active animation frame)
+; DrawPlayer  -  Select player's BOB animation frame
 ;
 ; Converts the player's tile-grid position to pixel coordinates, selects the
-; current animation frame from Player_SpriteOffset, and calls DrawSprite.
+; current animation frame from Player_BobOffset, and calls DrawSprite.
 ; Does nothing if Player_Status == 0 (player not yet placed in this level).
 ;
 ; On entry:
-;   a4 = pointer to Player structure (Millie or Molly)
+;   a4 = pointer to Player structure
 ;   a5 = Variables base
 ;   a6 = CUSTOM base
 ;==============================================================================
@@ -82,134 +79,36 @@ DrawPlayer:
     move.w     Player_PixelX(a4),d0    ; cached: Player_X * 24
     move.w     Player_PixelY(a4),d1    ; cached: Player_Y * 24
     moveq      #0,d2
-    add.w      Player_SpriteOffset(a4),d2
+    add.w      Player_BobOffset(a4),d2
     bsr        DrawSprite
 .exit
     rts
 
 ;==============================================================================
-; ShowSprite  -  Display the player character using hardware sprites
+; ShowPlayer  -  Set the active animation frame for the player BOB
 ;
-; Calculates the pixel position from the player structure, selects the correct
-; animation frame from PlayerHWSprites, writes the SPRxPOS/SPRxCTL header words
-; via SpriteCoord, then patches the copper list sprite pointers.
-;
-; If the player is inactive (Player_Status = 0), all sprites are cleared
-; by ClearSprites instead.
+; Sets PlayerFrame with the selected animation cel offset (0..47).
+; The player BOB is blitted in TilemapDrawPlayer (tilemap.asm) onto the
+; display screen interleaved bitplanes with foreground & water depth layering.
 ;
 ; On entry:
-;   a4 = pointer to player structure (Millie or Molly)
+;   d0 = BOB animation frame index (0..47)
+;   a4 = pointer to player structure
 ;   a5 = Variables base pointer
 ;   a6 = $dff000 (CUSTOM chip base)
-;
-; Register usage:
-;   d0 = sprite frame index (built from SpriteOffset + AnimFrame)
-;   d1 = X pixel position
-;   d2 = Y pixel position
-;   d5 = attach/height word for SpriteCoord
-;   a0 = pointer to current sprite structure in PlayerHWSprites
-; Patches SpritePtrs+0..+4 (SPR0-1) and cpSprites+SPRITE_00_OFFSET..+SPRITE_01_OFFSET.
-; Channels SPR2-5 remain free (NullSprite).
 ;==============================================================================
 
-ShowSprite:
+ShowPlayer:
     tst.w     Player_Status(a4)          ; is this player active?
-    bne       .go                        ; yes - proceed to display
-    bsr       ClearSprites               ; no  - hide all sprites
+    bne.s     .go                        ; yes - cache frame
     rts
 
-.go
-    move.w    d0,PlayerSpriteFrame(a5)   ; cache active hardware sprite frame offset
-
-    ; Calculate pixel position from tile coordinates + sub-tile decimals
-    moveq     #0,d1
-    moveq     #0,d2
-    move.w    Player_X(a4),d1            ; tile column
-    move.w    Player_Y(a4),d2            ; tile row
-    mulu      #TILE_WIDTH,d1             ; pixel X = tile_col * 16
-
-    ; Adjust for continuous vertical camera viewport position
-    lsl.w     #4,d2                      ; d2 = Player_Y * 16
-    add.w     Player_YDec(a4),d2         ; d2 = Player_Y * 16 + Player_YDec (PlayerMapPixelY)
-    sub.w     TilemapCameraY(a5),d2      ; d2 = PlayerMapPixelY - CameraPixelY
-    subq.w    #8,d2                      ; lift sprite 8px: 24px sprite feet rest on 16px tile platform
-
-    add.w     Player_XDec(a4),d1         ; add sub-tile X offset (animation interpolation)
-
-    ; Adjust Y for bridge sag if walking across a bridge
-    bsr       GetBridgeYOffset           ; returns Y pixel offset in d3
-    add.w     d3,d2                      ; apply sag offset to screen Y position
-
-    ; Select animation frame from sprite sheet
-    ; d0 = SpriteOffset  (base for this character: Molly=0, Millie=48)
-    ;     + AnimFrame offset for the current action
-    add.w     Player_SpriteOffset(a4),d0
-
-    ; Convert frame index to byte offset into PlayerHWSprites:
-    ;   offset = frame_index * HW_FRAME_SIZE (208 bytes = 2 sprites of 104 bytes each)
-    mulu      #HW_FRAME_SIZE,d0          ; d0 = byte offset to first sprite of this frame
-    lea       PlayerHWSprites,a0         ; base of sprite data in Chip RAM
-    add.l     d0,a0                      ; a0 -> SPR0 data for this frame
-
-    ; --- SPR0 (even sprite: bitplanes 0 & 1) ---
-    ; d5 = { attach_byte (hi), TILE_HEIGHT (lo) }; $80 in hi (ignored on even sprite)
-    move.w    #$80,d5
-    swap      d5
-    move.w    #TILE_HEIGHT,d5            ; d5.hi = $0080, d5.lo = height (24)
-
-    move.l    a0,SpritePtrs+0(a5)        ; store SPR0 pointer for copper list update
-    bsr       SpriteCoord                ; write SPR0POS/SPR0CTL to sprite data header
-
-    ; --- SPR1 (odd sprite: bitplanes 2 & 3 - attached to SPR0) ---
-    add.w     #SPRITE_SIZE,a0            ; advance to SPR1 data (+104 bytes)
-
-    move.w    #$80,d5                    ; attach bit ($80 in hi sets bit 7 in SPRxCTL)
-    swap      d5
-    move.w    #TILE_HEIGHT,d5
-
-    move.l    a0,SpritePtrs+4(a5)        ; store SPR1 pointer (attached to SPR0)
-    bsr       SpriteCoord                ; write SPR1 header (attach bit set!)
-
-    ; --- Patch the copper list sprite pointer entries ---
-    ; Copy SPR0-1 pointers from SpritePtrs(a5) into cpSprites so Agnus fetches
-    ; the correct data.
-    ; Pointer stored as: high 16 bits at +2, low 16 bits at +6 of each entry pair.
-    lea       cpSprites+SPRITE_00_OFFSET,a0  ; a0 -> SPR0PTH copper entry
-    lea       SpritePtrs+0(a5),a1            ; a1 -> SPR0 pointer (first of two)
-    moveq     #2-1,d7                        ; loop: 2 sprites (SPR0, SPR1)
-
-.loop
-    move.l    (a1)+,d0                   ; d0 = sprite data pointer
-    move.w    d0,6(a0)                   ; write low  16 bits to copper (SPRxPTL offset)
-    swap      d0
-    move.w    d0,2(a0)                   ; write high 16 bits to copper (SPRxPTH offset)
-    add.l     #8,a0                      ; advance to next copper sprite entry (8 bytes each)
-    dbra      d7,.loop
-
-    ; --- Update player sprite priority relative to water ---
-    ; If water level has reached the row that the player sprite is on:
-    ; Place player sprite behind water (BPLCON2 = $0000: Playfield 1 in front of sprites).
-    ; Otherwise, player is dry (BPLCON2 = $0024: sprites in front of playfield).
-    move.w    WaterCurrentRow(a5),d0
-    bmi.s     .sprite_dry                ; if no water (< 0), dry
-    ; Calculate player's current tile row from feet position: (Y*16 + YDec + 15) >> 4
-    move.w    Player_Y(a4),d1
-    lsl.w     #4,d1
-    add.w     Player_YDec(a4),d1
-    add.w     #15,d1
-    lsr.w     #4,d1                      ; d1 = current tile row of player's feet
-    cmp.w     d1,d0
-    bgt.s     .sprite_dry                ; water row > player row (water is below player)
-
-    ; Water has reached the player's row: sprite behind water
-    move.w    #$0000,cpBPLCON2+2
-    move.w    #$0000,BPLCON2(a6)
+.go:
+    move.w    d0,PlayerFrame(a5)      ; cache active BOB animation frame (0..47)
     rts
 
-.sprite_dry:
-    move.w    #$0024,cpBPLCON2+2
-    move.w    #$0024,BPLCON2(a6)
-    rts
+; Alias for backward compatibility:
+ShowSprite = ShowPlayer
 
 
 ;==============================================================================
@@ -221,7 +120,7 @@ ShowSprite:
 ;
 ; On entry:
 ;   d1 = player's world pixel X (Player_X * 16 + Player_XDec)
-;   a4 = pointer to current player struct (Millie or Molly)
+;   a4 = pointer to current player struct
 ;   a5 = Variables base
 ;
 ; On exit:
@@ -744,7 +643,7 @@ ActionPlayerPush:
 ;   - Player_YDec is cleared (player snaps to final position)
 ;   - Player_Y is set to Player_NextY
 ;
-; While falling, the walk/fall animation cycles through PLAYER_SPRITE_FALL_OFFSET
+; While falling, the walk/fall animation cycles through PLAYER_FALL_OFFSET
 ; frames at 3-frame intervals.
 ;==============================================================================
 
@@ -784,7 +683,7 @@ ActionPlayerFall:
     move.w      d1,Player_PixelY(a4)           ; refresh pixel Y cache (Y * 16)
 
 .show
-    ; Animate fall sprite: cycle frames at 1/3 speed
+    ; Animate fall BOB: cycle frames at 1/3 speed
     move.w      TickCounter(a5),d0
     divu        #3,d0                  ; one animation step every 3 frames
     swap        d0                     ; remainder -> d0 low word
@@ -796,8 +695,8 @@ ActionPlayerFall:
 
 .noadd
     move.w      Player_AnimFrame(a4),d0
-    add.w       #PLAYER_SPRITE_FALL_OFFSET,d0  ; select fall animation frame
-    bsr         ShowSprite
+    add.w       #PLAYER_FALL_OFFSET,d0     ; select fall animation frame
+    bsr         ShowPlayer
 
 .exit
     rts
@@ -811,9 +710,8 @@ ActionPlayerFall:
 ;
 ; Called every VBlank while ActionStatus = ACTION_INTRO or ACTION_SWITCH.
 ; StarAnimContext selects which completion behaviour fires when the hold expires:
-;   0 (ACTION_INTRO)  - level start: show the player sprite, enter ACTION_IDLE.
-;   1 (ACTION_SWITCH) - player swap: swap PlayerPtrs, clear the frozen graphic,
-;                       show the new active player sprite, enter ACTION_IDLE.
+;   0 (ACTION_INTRO)  - level start: show the player BOB, enter ACTION_IDLE.
+;   1 (ACTION_SWITCH) - legacy switch: enter ACTION_IDLE.
 ;
 ; A large blue star steps one tile per INTRO_STEP_TICKS frames on a straight
 ; diagonal path from StarOriginX/Y toward StarTargetX/Y.  Each step:
@@ -1072,8 +970,8 @@ ActionIntro:
     bsr         MarkAllActorsDirty           ; trail may have erased any actor tile
     bsr         DrawStaticActors             ; restore actor tiles the trail cleared
 .anim_complete
-    move.l      PlayerPtrs(a5),a4
-    ; Select the correct initial hardware-sprite frame for the newly-active player.
+    lea         Player(a5),a4
+    ; Select the correct initial BOB frame for the newly-active player.
     ; Without this, d0=0 always shows the right-facing idle frame for one frame
     ; before the normal action loop corrects it.
     moveq       #0,d0
@@ -1081,12 +979,12 @@ ActionIntro:
     bne         .ac_ladder                  ; on ladder: use ladder idle frame
     tst.w       Player_Facing(a4)
     bpl         .ac_show                    ; positive = right: frame 0 is correct
-    move.w      #PLAYER_SPRITE_LEFT_OFFSET,d0   ; facing left: use left-facing base
+    move.w      #PLAYER_LEFT_OFFSET,d0  ; facing left: use left-facing base
     bra         .ac_show
 .ac_ladder
-    move.w      #PLAYER_SPRITE_LADDER_IDLE,d0   ; idle-on-ladder frame
+    move.w      #PLAYER_LADDER_IDLE,d0  ; idle-on-ladder frame
 .ac_show
-    bsr         ShowSprite
+    bsr         ShowPlayer
     move.w      #ACTION_IDLE,ActionStatus(a5)
     rts
 
@@ -1735,11 +1633,19 @@ PlayerMoveLogic:
     move.b      (a0,d1.w),d3           ; d3 = next cell type
 
     ; Write player's block ID into the next cell.
-    ; If the next cell is a plain BLOCK_LADDER, use the ladder variant ID instead.
+    ; If the next cell is a ladder variant, use the player's ladder ID instead
+    ; and mark Player_OnLadder. Otherwise clear Player_OnLadder.
     move.b      Player_BlockId(a4),d4
+    clr.w       Player_OnLadder(a4)    ; assume entering non-ladder cell
     cmp.b       #BLOCK_LADDER,d3
-    bne         .notladdernext
-    move.b      Player_LadderId(a4),d4  ; use ladder-specific ID (MILLIELADDER/MOLLYLADDER)
+    beq.s       .is_ladder_next
+    cmp.b       #BLOCK_PLAYERLADDER,d3
+    beq.s       .is_ladder_next
+    cmp.b       Player_LadderId(a4),d3
+    bne.s       .notladdernext
+.is_ladder_next:
+    move.b      Player_LadderId(a4),d4  ; use ladder-specific ID (BLOCK_PLAYERLADDER)
+    move.w      #1,Player_OnLadder(a4)  ; player is now occupying a ladder cell
 
 .notladdernext
     move.b      d4,(a0,d1.w)           ; write player presence into next cell
@@ -1747,8 +1653,13 @@ PlayerMoveLogic:
     ; Clear the current cell.
     ; If it was a ladder ID, restore it to plain BLOCK_LADDER.
     move.b      #BLOCK_EMPTY,d4
+    cmp.b       #BLOCK_LADDER,d2
+    beq.s       .is_ladder_last
+    cmp.b       #BLOCK_PLAYERLADDER,d2
+    beq.s       .is_ladder_last
     cmp.b       Player_LadderId(a4),d2
-    bne         .notladderlast
+    bne.s       .notladderlast
+.is_ladder_last:
     move.b      #BLOCK_LADDER,d4       ; restore the ladder
 
 .notladderlast
@@ -1800,9 +1711,13 @@ PlayerFallLogic:
     add.w       Player_X(a4),d0
     move.w      d0,d1
 
-    ; Is the player currently on a ladder (their cell = LadderId)?  If so, no fall.
-    move.b      Player_LadderId(a4),d2
-    cmp.b       (a0,d1.w),d2
+    ; Is the player currently on a ladder? If so, no fall.
+    move.b      (a0,d1.w),d2
+    cmp.b       #BLOCK_LADDER,d2
+    beq         .exit
+    cmp.b       #BLOCK_PLAYERLADDER,d2
+    beq         .exit
+    cmp.b       Player_LadderId(a4),d2
     beq         .exit
 
     ; Scan downward for the floor
@@ -1845,8 +1760,7 @@ PlayerFallLogic:
 ;==============================================================================
 ; PlayerCheckControls  -  Dispatch to idle/frozen/inactive control handler
 ;
-; PlayerPtrs[0] is the active player (status=1).
-; PlayerPtrs[1] is the frozen player (status=2) or inactive (status=0).
+; Player is the player character (status=1).
 ;
 ; Uses JMPINDEX on Player_Status:
 ;   0 -> PlayerInactive  (character not yet placed)
@@ -1895,8 +1809,6 @@ PlayerInactive:
 ;==============================================================================
 
 PlayerIdle:
-    bsr         PlayerShowIdleAnim    ; update idle animation frame
-
     move.b      ControlsHold(a5),d0  ; d0 = newly-pressed keys this frame
 
     ; Clear both directions so left/right branches don't inherit a stale DirectionY
@@ -1904,7 +1816,11 @@ PlayerIdle:
     clr.w       Player_DirectionX(a4)
     clr.w       Player_DirectionY(a4)
 
-    ; Check each direction; set DirectionX/Y and branch to .move if pressed
+    ; If on a ladder, prioritize vertical ladder controls!
+    tst.w       Player_OnLadder(a4)
+    bne.s       .ladder_input
+
+    ; --- Ground / Platform controls ---
     btst        #CONTROLB_RIGHT,d0
     beq.s       .check_left
     cmp.w       #WALL_PAPER_WIDTH-1,Player_X(a4) ; already in column 19?
@@ -1938,67 +1854,116 @@ PlayerIdle:
 
     lea         GameMap(a5),a0
     move.b      (a0,d1.w),d1               ; d1 = cell type at current position
+    cmp.b       #BLOCK_LADDER,d1
+    beq         .move
+    cmp.b       #BLOCK_PLAYERLADDER,d1
+    beq         .move
     cmp.b       Player_LadderId(a4),d1
     beq         .move                      ; on ladder -> allow upward movement
+    bra         .nomove
+
+.ladder_input
+    ; Ladder controls: check DOWN and UP first so diagonal/accidental inputs don't override climbing
+    btst        #CONTROLB_DOWN,d0
+    beq.s       .ladder_check_up
+    move.w      #1,Player_DirectionY(a4)
+    bra         .move
+
+.ladder_check_up
+    btst        #CONTROLB_UP,d0
+    beq.s       .ladder_check_right
+    move.w      #-1,Player_DirectionY(a4)
+    bra         .move
+
+.ladder_check_right
+    btst        #CONTROLB_RIGHT,d0
+    beq.s       .ladder_check_left
+    cmp.w       #WALL_PAPER_WIDTH-1,Player_X(a4)
+    bge.s       .ladder_check_left
+    move.w      #1,Player_DirectionX(a4)
+    bra         .move
+
+.ladder_check_left
+    btst        #CONTROLB_LEFT,d0
+    beq.s       .nomove
+    tst.w       Player_X(a4)
+    ble.s       .nomove
+    move.w      #-1,Player_DirectionX(a4)
+    bra         .move
 
 .nomove
-    clr.w       Player_DirectionY(a4)      ; cancel direction
+    clr.w       Player_DirectionX(a4)      ; cancel direction
+    clr.w       Player_DirectionY(a4)
+    bsr         PlayerShowIdleAnim         ; standing still: update idle animation
     rts
 
 .move
-    ; A direction was chosen: update facing only on horizontal moves (preserve facing across ladder climbs)
-    tst.w       Player_DirectionX(a4)
-    beq.s       .face_done
-    move.w      Player_DirectionX(a4),Player_Facing(a4)
-.face_done
     bsr         PlayerTryMove              ; try to move in the chosen direction
-
+    tst.w       PlayerMoved(a5)            ; did the move succeed?
+    beq.s       .move_blocked              ; no (blocked) -> show idle animation
+    tst.w       Player_DirectionX(a4)      ; horizontal move?
+    beq.s       .exit
+    move.w      Player_DirectionX(a4),Player_Facing(a4) ; update facing only on actual horizontal move
 .exit
+    rts
+
+.move_blocked
+    bsr         PlayerShowIdleAnim         ; blocked: update idle animation
     rts
 
 
 ;==============================================================================
-; PlayerShowIdleAnim  -  Animate the player sprite while standing still
+; PlayerShowIdleAnim  -  Animate the player BOB while standing still
 ;
 ; Called from PlayerIdle once per frame.  Advances the animation frame every
 ; 5 VBlanks (TickCounter mod 5 = 0) for a slower idle cycle.
 ;
 ; Selects the appropriate animation frame based on:
-;   - If on a ladder: PLAYER_SPRITE_LADDER_IDLE (single frame, no cycling)
-;   - If off ladder, facing right: walk cycle frame + PLAYER_SPRITE_WALK_OFFSET
-;   - If off ladder, facing left: walk cycle frame + PLAYER_SPRITE_LEFT_OFFSET
+;   - If on a ladder: PLAYER_LADDER_IDLE (single frame, no cycling)
+;   - If off ladder, facing right: walk cycle frame + PLAYER_WALK_OFFSET
+;   - If off ladder, facing left: walk cycle frame + PLAYER_LEFT_OFFSET
 ;
 ; Also updates Player_OnLadder based on the player's current map cell.
 ;==============================================================================
 
 PlayerShowIdleAnim:
-    ; Only advance animation every 5 frames
-    move.w      TickCounter(a5),d0
-    divu        #5,d0
-    swap        d0                    ; remainder -> d0 low word
-    tst.w       d0
-    beq         .anim                 ; remainder = 0 -> advance
-    rts                               ; skip this frame
-
-.anim
-    ; Check if on a ladder
+    ; Check if on a ladder FIRST
     move.w      Player_Y(a4),d1
     mulu        #WALL_PAPER_WIDTH,d1
     add.w       Player_X(a4),d1       ; map offset
 
-    moveq       #PLAYER_SPRITE_LADDER_IDLE,d0   ; default: ladder idle frame
-
-    moveq       #0,d2
     lea         GameMap(a5),a0
     move.b      (a0,d1.w),d1          ; d1 = cell type at current position
+
+    moveq       #0,d2
+    cmp.b       #BLOCK_LADDER,d1
+    beq.s       .is_ladder
+    cmp.b       #BLOCK_PLAYERLADDER,d1
+    beq.s       .is_ladder
     cmp.b       Player_LadderId(a4),d1
-    bne         .noladder1
-    moveq       #1,d2                 ; d2 = 1 means on ladder
+    beq.s       .is_ladder
+    bra.s       .not_ladder
 
-.noladder1
+.is_ladder:
+    moveq       #1,d2
+
+.not_ladder:
     move.w      d2,Player_OnLadder(a4)  ; update on-ladder status
+    beq.s       .off_ladder
 
-    bne         .isright              ; on ladder: use PLAYER_SPRITE_LADDER_IDLE
+    ; On ladder: ALWAYS show ladder idle pose (rear view)
+    ; Never show left or right facing while on a ladder!
+    moveq       #PLAYER_LADDER_IDLE,d0
+    bsr         ShowPlayer
+    rts
+
+.off_ladder:
+    ; Off ladder: advance animation every 5 frames
+    move.w      TickCounter(a5),d0
+    divu        #5,d0
+    swap        d0                    ; remainder -> d0 low word
+    tst.w       d0
+    bne.s       .show_ground          ; not advancing this frame, but always refresh sprite
 
     ; Not on ladder: cycle walk animation frames 0..3
     move.w      Player_AnimFrame(a4),d0
@@ -2006,27 +1971,20 @@ PlayerShowIdleAnim:
     and.w       #3,d0
     move.w      d0,Player_AnimFrame(a4)
 
-    ; Check if we came off a ladder (Player_OnLadder was just set to 0)
-    tst.w       Player_OnLadder(a4)
-    beq         .noladder
-
-    ; Was on ladder: use ladder frame offset
-    add.w       #PLAYER_SPRITE_LADDER_OFFSET,d0
-    bra         .isright
-
-.noladder
-    ; Off ladder: apply left/right facing offset
+.show_ground:
+    move.w      Player_AnimFrame(a4),d0
+    and.w       #3,d0
     tst.w       Player_Facing(a4)
-    bpl         .isright              ; positive facing = right: frames 0..3 (idle-right)
-    add.w       #PLAYER_SPRITE_LEFT_OFFSET,d0  ; left-facing: frames 32..35
+    bpl.s       .show_frame           ; positive facing = right: frames 0..3 (idle-right)
+    add.w       #PLAYER_LEFT_OFFSET,d0 ; left-facing: frames 32..35
 
-.isright
-    bsr         ShowSprite            ; display the selected animation frame
+.show_frame:
+    bsr         ShowPlayer            ; display the selected animation frame
     rts
 
 
 ;==============================================================================
-; PlayerShowWalkAnim  -  Animate the player sprite while moving
+; PlayerShowWalkAnim  -  Animate the player BOB while moving
 ;
 ; Called from ActionMove every frame.  Advances the animation cycle every
 ; other frame (TickCounter AND 1) for walk animation.
@@ -2035,94 +1993,70 @@ PlayerShowIdleAnim:
 ; on-ladder climbing.
 ;
 ; Frame selection:
-;   On ladder:   AnimFrame (0..3) + PLAYER_SPRITE_LADDER_OFFSET
-;   Off ladder, right: AnimFrame (0..7) + PLAYER_SPRITE_WALK_OFFSET
-;   Off ladder, left:  (AnimFrame + PLAYER_SPRITE_LEFT_OFFSET) + PLAYER_SPRITE_WALK_OFFSET
+;   On ladder:         AnimFrame (0..3) + PLAYER_LADDER_OFFSET
+;   Off ladder, right: AnimFrame (0..7) + PLAYER_WALK_OFFSET
+;   Off ladder, left:  (AnimFrame + PLAYER_LEFT_OFFSET) + PLAYER_WALK_OFFSET
 ;==============================================================================
 
 PlayerShowWalkAnim:
-    ; if Player_DirectionY is non-zero, we are definitely on a ladder (vertical movement only)
+    ; If moving vertically, we are DEFINITELY on a ladder!
     tst.w       Player_DirectionY(a4)
-    bne         .ontladder
+    bne.s       .ontladder
 
-    ; Update Player_OnLadder based on current cell type, since we can only be on a ladder if moving vertically onto it.
-      move.w      Player_Y(a4),d1
-      mulu        #WALL_PAPER_WIDTH,d1
-      add.w       Player_X(a4),d1        ; d1 = current cell offset
-      lea         GameMap(a5),a0
-      move.b      (a0,d1.w),d2           ; d2 = current cell type
-      moveq       #0,d3                  ; d3 = on ladder flag (default: walking)
+    ; Moving horizontally: we are walking (even if stepping off ladder)
+    clr.w       Player_OnLadder(a4)
+    bra.s       .advance_anim
 
-      cmp.b       Player_LadderId(a4),d2 ; on a ladder cell?
-      bne         .notlad
+.ontladder:
+    move.w      #1,Player_OnLadder(a4)
 
-      ; On a ladder cell - check if we've reached the bottom and are stepping off
-      move.b      WALL_PAPER_WIDTH(a0,d1.w),d4  ; d4 = cell type directly below
-      cmp.b       #BLOCK_LADDER,d4 ; is cell below also a ladder?
-      beq         .ontladder             ; yes - still climbing
+.advance_anim:
+    ; Only advance animation every other frame
+    move.w      TickCounter(a5),d0
+    and.w       #1,d0
+    bne.s       .show                 ; odd frame: show but don't advance
 
-      ; Switch to walking if we're moving horizontally away from the ladder (DirectionX non-zero).
-      ; *and* there's no ladder left/right that we could climb onto
+    ; Advance walk animation (even frames only)
+    move.w      Player_AnimFrame(a4),d0
+    addq.w      #1,d0
 
-      tst.w       Player_DirectionX(a4)     ; moving left or right?
-      beq         .ontladder                ; no - not moving horizontally, so still on the ladder
+    ; Cycle limit depends on whether on ladder (0-3) or walking (0-7)
+    tst.w       Player_OnLadder(a4)
+    beq.s       .walkframes
+    and.w       #3,d0                 ; ladder: cycle 0..3
+    bra.s       .saveframe
 
-      ; check tile to the left/right of the Player
-        add.w       Player_DirectionX(a4),d1        ; d1 = current cell offset
-        move.b      (a0,d1.w),d2  ; d2 = cell type to the right
-        cmp.b       #BLOCK_LADDER,d2
-        bne         .notlad          
+.walkframes:
+    and.w       #7,d0                 ; walk: cycle 0..7
+.saveframe:
+    move.w      d0,Player_AnimFrame(a4)
 
-.ontladder
-      moveq       #1,d3                  ; use climbing sprite
+.show:
+    move.w      Player_AnimFrame(a4),d0
 
-.notlad
-      move.w      d3,Player_OnLadder(a4)
+    ; Determine if on ladder or walking
+    tst.w       Player_OnLadder(a4)
+    beq.s       .walking
 
-      ; Only advance animation every other frame
-      move.w      TickCounter(a5),d0
-      and.w       #1,d0
-      bne         .show                 ; odd frame: show but don't advance
+    ; On ladder: strictly clamp to 0..3 and use ladder offset (16)
+    and.w       #3,d0
+    add.w       #PLAYER_LADDER_OFFSET,d0
+    bsr         ShowPlayer
+    rts
 
-      ; Advance walk animation (even frames only)
-      move.w      Player_AnimFrame(a4),d0
-      addq.w      #1,d0
+.walking:
+    ; Off ladder: strictly clamp to 0..7
+    and.w       #7,d0
+    move.w      #PLAYER_WALK_OFFSET,d1
 
-      ; Cycle limit depends on whether on ladder (0-3) or walking (0-7)
-      tst.w       Player_OnLadder(a4)
-      beq         .walkframes
-      and.w       #3,d0                 ; ladder: cycle 0..3
-      bra         .saveframe
+    tst.w       Player_Facing(a4)
+    bpl.s       .rightface
+    add.w       #PLAYER_LEFT_OFFSET,d0    ; left-facing: offset the frame index (32)
 
-.walkframes
-      and.w       #7,d0                 ; walk: cycle 0..7
-.saveframe
-      move.w      d0,Player_AnimFrame(a4)
-
-.show
-      move.w      Player_AnimFrame(a4),d0
-
-      ; Determine if on ladder or walking
-      tst.w       Player_OnLadder(a4)
-      beq         .walking
-
-      ; On ladder: use ladder offset (doesn't change based on facing)
-      add.w       #PLAYER_SPRITE_LADDER_OFFSET,d0
-      bsr         ShowSprite
-      rts
-
-.walking
-      ; Off ladder: use walk offset + facing adjustment
-      move.w      #PLAYER_SPRITE_WALK_OFFSET,d1
-
-      tst.w       Player_Facing(a4)
-      bpl         .rightface
-      add.w       #PLAYER_SPRITE_LEFT_OFFSET,d0  ; left-facing: offset the frame index
-
-.rightface
-      add.w       d1,d0                 ; add walk offset
-      bsr         ShowSprite
-      rts
+.rightface:
+    add.w       d1,d0                 ; add walk offset (4)
+    bsr         ShowPlayer
+    rts
 
 ;==============================================================================
 ; PlayerTryMove  -  Determine what action the player can take
@@ -2134,17 +2068,15 @@ PlayerShowWalkAnim:
 ; Then JMPINDEX on that block type to choose the action.
 ;
 ; Block type -> action dispatch:
-;   BLOCK_EMPTY       -> PlayerDoMove   (walk into empty space)
+;   BLOCK_EMPTY       -> PlayerMoveEmpty (walk into empty space or off ladder)
 ;   BLOCK_LADDER      -> PlayerDoMove   (walk onto/off ladder)
 ;   BLOCK_ENEMYFALL   -> PlayerKillEnemy (kill the enemy)
 ;   BLOCK_PUSH        -> PlayerPushBlock (check if the block can be pushed)
 ;   BLOCK_DIRT        -> PlayerKillDirt  (walk through dirt, destroying it)
 ;   BLOCK_SOLID       -> PlayerNotMove   (blocked by wall)
 ;   BLOCK_ENEMYFLOAT  -> PlayerKillEnemy (kill the floating enemy)
-;   BLOCK_MILLIESTART -> PlayerNotMove   (can't walk into the other player's cell)
-;   BLOCK_MOLLYSTART  -> PlayerNotMove
-;   BLOCK_MILLIELADDER-> PlayerMoveLadder (move along while on ladder)
-;   BLOCK_MOLLYLADDER -> PlayerMoveLadder
+;   BLOCK_PLAYERSTART -> PlayerNotMove   (can't walk into start cell)
+;   BLOCK_PLAYERLADDER-> PlayerMoveLadder (move along while on ladder)
 ;   BLOCK_COCOON      -> PlayerPushBlock (cocoons push like crates)
 ;   BLOCK_ACID        -> PlayerNotMove   (impassable to players)
 ;==============================================================================
@@ -2156,17 +2088,17 @@ PlayerTryMove:
     JMPINDEX    d2                    ; jump based on next cell's block type
 
 .i
-    dc.w        PlayerDoMove-.i       ; BLOCK_EMPTY       = 0
+    dc.w        PlayerMoveEmpty-.i    ; BLOCK_EMPTY       = 0
     dc.w        PlayerDoMove-.i       ; BLOCK_LADDER      = 1
     dc.w        PlayerKillEnemy-.i    ; BLOCK_ENEMYFALL   = 2
     dc.w        PlayerPushBlock-.i    ; BLOCK_PUSH        = 3
     dc.w        PlayerKillDirt-.i     ; BLOCK_DIRT        = 4
     dc.w        PlayerNotMove-.i      ; BLOCK_SOLID       = 5
     dc.w        PlayerKillEnemy-.i    ; BLOCK_ENEMYFLOAT  = 6
-    dc.w        PlayerNotMove-.i      ; BLOCK_MILLIESTART = 7
-    dc.w        PlayerNotMove-.i      ; BLOCK_MOLLYSTART  = 8
-    dc.w        PlayerMoveLadder-.i   ; BLOCK_MILLIELADDER= 9
-    dc.w        PlayerMoveLadder-.i   ; BLOCK_MOLLYLADDER = 10
+    dc.w        PlayerNotMove-.i      ; BLOCK_PLAYERSTART = 7
+    dc.w        PlayerNotMove-.i      ; block 8 (unused)  = 8
+    dc.w        PlayerMoveLadder-.i   ; BLOCK_PLAYERLADDER= 9
+    dc.w        PlayerMoveLadder-.i   ; block 10 (unused) = 10
     dc.w        PlayerPushBlock-.i    ; BLOCK_COCOON      = 11
     dc.w        PlayerNotMove-.i      ; BLOCK_ACID        = 12
     rts
@@ -2214,17 +2146,41 @@ PlayerNotMove:
 
 
 ;==============================================================================
-; PlayerMoveLadder  -  Move into a cell containing the other player's ladder marker
+; PlayerMoveEmpty  -  Move into an empty cell (BLOCK_EMPTY)
 ;
-; If the next cell is BLOCK_MILLIELADDER or BLOCK_MOLLYLADDER (the other player
-; is on this ladder cell), the current player can still "share" the cell by
-; executing a standard move.  This is a design decision: players can be on the
-; same ladder segment simultaneously.
+; Horizontal movement (walking) is always allowed into empty cells.
+; Vertical movement (climbing up/down into empty space) is ONLY allowed if the
+; player is currently occupying a ladder cell (e.g. climbing off the top rung
+; onto a platform floor, or stepping down off a ladder into air to fall).
+; Moving UP into empty air from a non-ladder cell is strictly blocked.
+;==============================================================================
+
+PlayerMoveEmpty:
+    tst.w       Player_DirectionY(a4)
+    beq         PlayerDoMove          ; horizontal movement (DirectionY = 0) -> always allowed
+
+    ; Moving vertically (UP or DOWN) into BLOCK_EMPTY:
+    ; Only allowed if the player is currently on a ladder.
+    move.w      Player_Y(a4),d1
+    mulu        #WALL_PAPER_WIDTH,d1
+    add.w       Player_X(a4),d1       ; d1 = map offset of current cell
+    move.b      (a0,d1.w),d1          ; d1 = cell type at current position
+    cmp.b       #BLOCK_LADDER,d1
+    beq         PlayerDoMove
+    cmp.b       #BLOCK_PLAYERLADDER,d1
+    beq         PlayerDoMove
+    cmp.b       Player_LadderId(a4),d1
+    beq         PlayerDoMove
+    rts                               ; blocked: cannot move vertically into empty space
+
+
+;==============================================================================
+; PlayerMoveLadder  -  Move into a cell containing a ladder marker
+;
+; Moves along ladder cell if horizontal or valid vertical motion.
 ;==============================================================================
 
 PlayerMoveLadder:
-    tst.w       Player_DirectionY(a4)   ; moving vertically into frozen player's ladder cell?
-    bne         PlayerNotMove           ; yes - blocked
     bsr         PlayerDoMove
     rts
 
@@ -2302,6 +2258,14 @@ PlayerDoMove:
 
     clr.w       Player_XDec(a4)       ; start sub-pixel offsets at 0
     clr.w       Player_YDec(a4)
+
+    ; If moving vertically on a ladder, immediately ensure ladder state and clamped animation frame
+    tst.w       Player_DirectionY(a4)
+    beq.s       .exit_domove
+    move.w      #1,Player_OnLadder(a4)
+    and.w       #3,Player_AnimFrame(a4)
+.exit_domove:
+    bsr         PlayerShowWalkAnim
     rts
 
 

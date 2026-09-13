@@ -22,53 +22,53 @@
 ;==============================================================================
 ; Player structure  (Player_Sizeof bytes)
 ;
-; Holds the complete state of one player character (Millie or Molly).
-; Two of these live in the Variables block:  Millie and Molly.
-; a4 is the convention register for a pointer to the current player struct.
+; Holds the complete state of the single player character.
+; Lives in the Variables block as: Player: rs.b Player_Sizeof.
+; a4 is the convention register for a pointer to the player struct.
 ;
 ; Field descriptions:
-;   Player_Status       - 0 = inactive, 1 = active/controlled, 2 = frozen
+;   Player_Status       - 0 = inactive, 1 = active/controlled
 ;   Player_X / Y        - current tile-grid position (0-based column / row)
 ;   Player_XDec / YDec  - sub-tile pixel offset used during ACTION_MOVE and
 ;                         ACTION_FALL to animate smooth movement between tiles
-;                         (these are pixel deltas added to X*24 / Y*24)
 ;   Player_ActionCount  - countdown frames remaining in the current action
-;                         (24 frames for a tile-to-tile move = 1 pixel/frame)
 ;   Player_PrevX / Y    - position at the start of the last move, used to
 ;                         clear the player's previous screen location
 ;   Player_NextX / Y    - destination tile for the current move or fall action
-;   Player_SpriteOffset - base frame index in PlayerHWSprites for this character
-;                         (Molly = 0, Millie = 48)
-;   Player_FrozenSpriteBase - base frame index for frozen pose (ladder or standing)
+;   Player_BobOffset    - base frame index in PlayerRaw/Msk for this character
+;                         (0 = Cole, 48 = Price)
+;   Player_FrozenBobBase - base frame index for frozen pose (ladder or standing)
 ;   Player_AnimFrame    - current animation frame counter (0..7 walk, 0..3 idle)
 ;   Player_Facing       - direction the character faces:
 ;                         positive (e.g. +1) = right, negative (-1) = left
 ;   Player_OnLadder     - non-zero when the player is currently on a ladder
-;   Player_LadderFreezeId - sprite frame used to draw the frozen/static image
-;                         of this player when it is the inactive character
+;   Player_LadderFreezeId - frame used to draw the static image on ladder
 ;   Player_DirectionX   - horizontal movement intent: -1, 0 or +1
 ;   Player_DirectionY   - vertical movement intent:   -1, 0 or +1
 ;   Player_Fallen       - non-zero while the player is in a fall animation
 ;   Player_ActionFrame  - sub-frame counter used by the fall easing calculation
-;   Player_BlockId      - BLOCK_MILLIESTART or BLOCK_MOLLYSTART - the map cell
-;                         value used to mark this player's presence in GameMap
-;   Player_LadderId     - BLOCK_MILLIELADDER or BLOCK_MOLLYLADDER - the map
+;   Player_BlockId      - BLOCK_PLAYERSTART - the map cell
+;                         value used to mark the player's presence in GameMap
+;   Player_LadderId     - BLOCK_PLAYERLADDER - the map
 ;                         cell value used while the player is on a ladder
 ;==============================================================================
 
                           RSRESET
-Player_Status:            rs.w    1   ; 0=inactive, 1=active, 2=frozen (other player)
+Player_Status:            rs.w    1   ; 0=inactive, 1=active
 Player_X:                 rs.w    1   ; tile column (0..WALL_PAPER_WIDTH-1)
 Player_Y:                 rs.w    1   ; tile row    (0..WALL_PAPER_HEIGHT-1)
 Player_XDec:              rs.w    1   ; sub-tile horizontal pixel offset (+/-)
 Player_YDec:              rs.w    1   ; sub-tile vertical   pixel offset (+/-)
 Player_ActionCount:       rs.w    1   ; frames remaining in current move (24 per tile)
-Player_PrevX:             rs.w    1   ; tile column at start of last move (for clear)
-Player_PrevY:             rs.w    1   ; tile row    at start of last move (for clear)
+Player_PrevX:             rs.w    1   ; screen pixel X at start of last move (for BOB erase)
+Player_PrevY:             rs.w    1   ; screen pixel Y at start of last move (for BOB erase)
+Player_PrevDrawn:         rs.w    1   ; non-zero if player was blitted last frame
 Player_NextX:             rs.w    1   ; destination tile column for current action
 Player_NextY:             rs.w    1   ; destination tile row    for current action
-Player_SpriteOffset:      rs.w    1   ; base sprite frame index 
-Player_FrozenSpriteBase:  rs.w    1   ; base sprite frame index for frozen pose
+Player_BobOffset:         rs.w    1   ; base BOB frame index (0=Cole, 48=Price)
+Player_FrozenBobBase:     rs.w    1   ; base BOB frame index for frozen pose
+Player_SpriteOffset       = Player_BobOffset       ; alias for compatibility
+Player_FrozenSpriteBase   = Player_FrozenBobBase   ; alias for compatibility
 Player_AnimFrame:         rs.w    1   ; current animation frame (wraps per-action)
 Player_Facing:            rs.w    1   ; +1 = facing right, -1 = facing left
 Player_OnLadder:          rs.w    1   ; 0 = on ground,  non-zero = on ladder
@@ -77,8 +77,8 @@ Player_DirectionX:        rs.w    1   ; intended X move: -1=left, 0=none, +1=rig
 Player_DirectionY:        rs.w    1   ; intended Y move: -1=up,   0=none, +1=down
 Player_Fallen:            rs.w    1   ; non-zero while fall animation is active
 Player_ActionFrame:       rs.w    1   ; easing sub-frame index for fall animation
-Player_BlockId:           rs.b    1   ; BLOCK_MILLIESTART or BLOCK_MOLLYSTART
-Player_LadderId:          rs.b    1   ; BLOCK_MILLIELADDER or BLOCK_MOLLYLADDER
+Player_BlockId:           rs.b    1   ; BLOCK_PLAYERSTART
+Player_LadderId:          rs.b    1   ; BLOCK_PLAYERLADDER
 Player_PixelX:            rs.w    1   ; cached pixel X = Player_X * 24 (updated on every tile commit)
 Player_PixelY:            rs.w    1   ; cached pixel Y = Player_Y * 24 (updated on every tile commit)
 Player_Sizeof:            rs.w    0   ; total structure size in bytes (for ds.b alloc)
@@ -175,19 +175,21 @@ Actor_Sizeof:             rs.w    0   ; total structure size in bytes
 SNAP_ACTOR_WORDS = 7                  ; words saved per actor slot (see above)
 
                           RSRESET
-Snap_MillieX:             rs.w    1   ; Millie tile column
-Snap_MillieY:             rs.w    1   ; Millie tile row
-Snap_MillieStatus:        rs.w    1   ; Millie Player_Status (0/1/2)
-Snap_MillieFacing:        rs.w    1   ; Millie Player_Facing (+1/-1)
-Snap_MillieOnLadder:      rs.w    1   ; Millie Player_OnLadder (0/nonzero)
-Snap_MollyX:              rs.w    1   ; Molly tile column
-Snap_MollyY:              rs.w    1   ; Molly tile row
-Snap_MollyStatus:         rs.w    1   ; Molly Player_Status
-Snap_MollyFacing:         rs.w    1   ; Molly Player_Facing
-Snap_MollyOnLadder:       rs.w    1   ; Molly Player_OnLadder
+Snap_PlayerX:             rs.w    1   ; Player tile column
+Snap_PlayerY:             rs.w    1   ; Player tile row
+Snap_PlayerStatus:        rs.w    1   ; Player Player_Status (0/1)
+Snap_PlayerFacing:        rs.w    1   ; Player Player_Facing (+1/-1)
+Snap_PlayerOnLadder:      rs.w    1   ; Player Player_OnLadder (0/nonzero)
 Snap_Map:                 rs.b    MAX_GAME_MAP_SIZE  ; GameMap copy (1280 bytes)
 Snap_Actors:              rs.b    MAX_ACTORS*SNAP_ACTOR_WORDS*2  ; 88 x 14 bytes (1,232 bytes)
 Snap_sizeof:              rs.w    0   ; total snapshot size in bytes
+
+; Backward compatibility aliases:
+Snap_MillieX              = Snap_PlayerX
+Snap_MillieY              = Snap_PlayerY
+Snap_MillieStatus         = Snap_PlayerStatus
+Snap_MillieFacing         = Snap_PlayerFacing
+Snap_MillieOnLadder       = Snap_PlayerOnLadder
 
 
                           RSRESET
@@ -216,6 +218,7 @@ LevelDef_Width:           rs.w    1   ; Map width in tiles
 LevelDef_Height:          rs.w    1   ; Map height in tiles
 LevelDef_BackgroundMap:   rs.l    1   ; Pointer to background layer binary .map (0 if none)
 LevelDef_PlatformMap:     rs.l    1   ; Pointer to platform layer binary .map (0 if none)
+LevelDef_ForegroundMap:   rs.l    1   ; Pointer to foreground layer binary .map (0 if none)
 LevelDef_WaterMap:        rs.l    1   ; Pointer to water layer binary .map (0 if none)
 LevelDef_LayerCount:      rs.w    1   ; Number of ordered tile layers
 LevelDef_Reserved:        rs.w    1   ; Reserved for alignment / future flags

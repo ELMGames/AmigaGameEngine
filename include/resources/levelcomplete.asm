@@ -18,7 +18,7 @@
 ;   Glyph for char c: FontData + (c - 32) * 8.
 ;   Required charset: A-Z, 0-9, space, '!', ':', '>', '.'.
 ;
-; Portraits (assets/millie_pic.raw, molly_pic.raw):
+; Portraits:
 ;   64x64 pixels, 5 consecutive non-interleaved bitplanes.
 ;   Plane P: portrait_base + P * 512  (8 bytes/row x 64 rows = 512 bytes).
 ;   Total: 2560 bytes each. Palette colours 1-30 in cpLCPal should match artwork.
@@ -55,8 +55,8 @@ LC_GRADIENT_SCHEMES   = 8            ; number of banner colour schemes (must be 
 LC_OFF_TITLE1  =  4*SCREEN_STRIDE+12   ; CONGRATULATIONS! (16 chars on 40 cols -> X=12)
 LC_OFF_TITLE2  = 20*SCREEN_STRIDE+11   ; LEVEL NNN CLEARED! (18 chars on 40 cols -> X=11)
 LC_OFF_PORTRAIT= 28*SCREEN_STRIDE      ; portrait row base (top-left)
-LC_OFF_MILLIE  = LC_OFF_PORTRAIT+0     ; Player 1 portrait at byte X=0 (0..63 px)
-LC_OFF_MOLLY   = LC_OFF_PORTRAIT+32    ; Player 2 portrait at byte X=32 (256..319 px)
+LC_OFF_PLAYER  = LC_OFF_PORTRAIT+0     ; Player portrait at byte X=0 (0..63 px)
+LC_OFF_MILLIE  = LC_OFF_PLAYER         ; backward compatibility alias
 LC_OFF_BAN1    =108*SCREEN_STRIDE+8    ; NEXT LEVEL ACCESS CODE: (23 chars -> X=8)
 LC_OFF_PASS    =124*SCREEN_STRIDE+17   ; 6-char access code (centred on 40 cols -> X=17)
 LC_OFF_MENU0   =168*SCREEN_STRIDE+11   ; menu item 0 (17 chars -> X=11)
@@ -187,41 +187,9 @@ LevelCompleteSetup:
     addq.l      #8,a1
     dbra        d7,.grad_copy
 
-    ; 3. Blit portraits:
-    ; Check if both players were in the level:
-    tst.w       Millie+Player_Status(a5)
-    beq         .single_player
-    tst.w       Molly+Player_Status(a5)
-    beq         .single_player
-
-    ; --- Two-player level: draw Dr. Price (left) and Sgt. Cole (right) ---
-    lea         MilliePic,a0
-    lea         DisplayScreen+LC_OFF_MILLIE,a1
-    bsr         LC_BltPortrait
-
-    lea         MollyPic,a0
-    lea         DisplayScreen+LC_OFF_MOLLY,a1
-    bsr         LC_BltPortrait
-    bra         .portraits_done
-
-.single_player:
-    ; Single-player level: identify who the active player was from Player_SpriteOffset
-    ; (48 = Dr. Price, 0 = Sgt. Cole)
-    move.l      PlayerPtrs(a5),a2
-    move.w      Player_SpriteOffset(a2),d0
-    cmp.w       #48,d0
-    beq         .single_price
-
-    ; Single-player Sgt. Cole:
-    lea         MollyPic,a0
-    lea         DisplayScreen+LC_OFF_MILLIE,a1
-    bsr         LC_BltPortrait
-    bra         .portraits_done
-
-.single_price:
-    ; Single-player Dr. Price:
-    lea         MilliePic,a0
-    lea         DisplayScreen+LC_OFF_MILLIE,a1
+    ; 3. Blit single player portrait:
+    lea         PlayerPic,a0
+    lea         DisplayScreen+LC_OFF_PLAYER,a1
     bsr         LC_BltPortrait
 
 .portraits_done:

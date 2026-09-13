@@ -807,11 +807,8 @@ LoadingSkipAnimation:
 ;==============================================================================
 
 CopyOverlayAssets:
-    PUSHALL
-    lea     PlayerHWSprites_FastMem,a0
-    lea     PlayerHWSprites,a1
-    jsr     zx0_decompress
-    POPALL
+    ; Player converted to Blitter Object (BOB) stored directly in Chip RAM (PlayerRaw/Msk).
+    ; No hardware sprite decompression needed.
     rts
 
 

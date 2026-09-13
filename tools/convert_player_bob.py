@@ -135,7 +135,7 @@ def assemble_player_frames(cels):
       0..3   : Idle right (4 frames, faces right)
       4..11  : Walk right (8 frames, walks right)
       12..15 : Carry right (4 frames)
-      16..19 : Ladder climb (4 frames, rear view; 19 is ladder idle freeze)
+      16..19 : Ladder climb (4 frames, rear view; 16 is ladder idle neutral)
       20..21 : Push right (2 frames)
       22..23 : Push left (2 frames)
       24..27 : Slide / dash (4 frames)

@@ -36,6 +36,14 @@ DrawMap:
     clr.w         LevelComplete(a5)      ; clear level completion flag
     clr.w         LevelCompleteHold(a5)  ; reset hold countdown
     clr.w         ActionStatus(a5)       ; reset action state to IDLE
+    clr.w         SlowMode(a5)           ; unconditionally start in RUN mode
+    clr.w         SlowModeHold(a5)
+    clr.w         PrevKeyS(a5)
+    clr.w         DebugOverlayActive(a5) ; unconditionally start with debug overlay OFF
+    lea           Keys,a0
+    clr.b         KEY_S(a0)
+    clr.b         KEY_A(a0)
+    clr.b         KEY_D(a0)
     bsr           ClearDirtyTiles        ; ensure no stale dirty flags from previous level
 
     bsr           LevelInit              ; initialize map, player, actors, GameMap
@@ -66,10 +74,13 @@ TilemapInit:
     move.w      d1,TilemapCurrentOffset(a5)
     and.w       #15,d0
     move.w      d0,TilemapFineY(a5)
-    clr.w       PlayerSpriteFrame(a5)
+    clr.w       PlayerFrame(a5)
 
-    ; Initialize on-screen debug overlay state (enabled by default)
-    move.w      #1,DebugOverlayActive(a5)
+    ; Initialize on-screen debug overlay state (disabled by default)
+    clr.w       DebugOverlayActive(a5)
+    clr.w       SlowMode(a5)           ; unconditionally start in RUN mode
+    clr.w       SlowModeHold(a5)
+    clr.w       PrevKeyS(a5)
     move.w      TilemapCameraY(a5),PrevDebugCameraY(a5)
     clr.w       PrevDebugDrawn(a5)
 
@@ -208,6 +219,15 @@ TilemapDrawViewport:
     move.l      (sp),a0
     bsr.s       TilemapDrawLayer
 .no_plat:
+
+    ; --- Pass 2.5: Render Foreground Elements Layer (cookie-cut over platforms) ---
+    movea.l     CurrentLevelDef(a5),a2
+    move.l      LevelDef_ForegroundMap(a2),d0
+    beq.s       .no_fg
+    movea.l     d0,a2
+    move.l      (sp),a0
+    bsr.s       TilemapDrawLayer
+.no_fg:
 
     ; --- Pass 3: Render Water Layer (if defined in LevelDef) ---
     movea.l     CurrentLevelDef(a5),a2
@@ -656,6 +676,209 @@ TilemapSubmergeScanline:
 
 
 ;==============================================================================
+; TilemapSubmergeActor  -  Apply wave surface graphic or solid blue stipple
+;
+; Called by TilemapDrawPlayer and TilemapDrawEnemySubPixel to submerge an actor.
+; For scanlines WaterPixelY + 0..3, applies the wave crest profile from
+; WaterWaveTable_Even / WaterWaveTable_Odd so the wave flows seamlessly across
+; the actor with no straight-line cutoff.
+; For scanlines >= WaterPixelY + 4, applies 50% solid blue dither.
+;
+; In:
+;   a0   = Pointer to destination Plane 0 in DisplayScreen (Y * 160 + col * 2)
+;   d0.w = Actor X coordinate (to test alignment: andi.w #15)
+;   d1.w = Actor top scanline Y
+;   d2.w = WaterPixelY
+;   d7.w = Actor height in scanlines (e.g. PLAYER_HEIGHT or ENEMY_FRAME_HEIGHT)
+;
+; Preserves:
+;   All caller registers (pushes d0-d7/a0-a3)
+;==============================================================================
+
+TilemapSubmergeActor:
+    PUSHM       d0-d7/a0-a3
+
+    ; Check if water is active
+    tst.w       d2                      ; WaterPixelY
+    bmi         .exit                   ; if < 0, no water!
+
+    ; Check if actor is completely above water
+    move.w      d1,d3                   ; d3 = actor top Y
+    add.w       d7,d3
+    subq.w      #1,d3                   ; d3 = actor bottom Y
+    cmp.w       d2,d3                   ; compare bottom Y with WaterPixelY
+    blt         .exit                   ; if bottom < WaterPixelY, completely dry!
+
+    WAITBLIT                            ; ensure blitter has finished drawing actor BOB
+
+    ; Check if 1 word wide (aligned) or 2 words wide (shifted)
+    andi.w      #15,d0
+    bne         .submerge_2words
+
+    ; -------------------------------------------------------------------------
+    ; 1-Word Aligned Submersion (16px span)
+    ; -------------------------------------------------------------------------
+    subq.w      #1,d7                   ; for dbra
+.loop_1w:
+    cmp.w       d2,d1                   ; scanline Y >= WaterPixelY?
+    blt         .next_line_1w           ; if not, dry scanline!
+
+    ; Calculate line offset from water top: d6 = d1 - d2
+    move.w      d1,d6
+    sub.w       d2,d6                   ; d6 = 0, 1, 2, 3, 4, ...
+    cmp.w       #4,d6
+    bge.s       .solid_blue_1w          ; d6 >= 4 -> solid blue water body
+
+    ; Wave crest profile (d6 = 0..3):
+    btst        #0,d1
+    bne.s       .odd_table_1w
+    lea         WaterWaveTable_Even(pc),a1
+    bra.s       .table_ready_1w
+.odd_table_1w:
+    lea         WaterWaveTable_Odd(pc),a1
+.table_ready_1w:
+    ; Table entry offset = d6 * 10
+    lsl.w       #1,d6                   ; d6 * 2
+    move.w      d6,d3
+    lsl.w       #2,d6                   ; d6 * 8
+    add.w       d3,d6                   ; d6 * 10
+    adda.w      d6,a1
+
+    move.w      (a1)+,d3                ; d3 = not_m
+    move.w      (a1)+,d4                ; d4 = p0_or
+    move.w      (a1)+,d5                ; d5 = p1_or
+    move.w      (a1)+,d6                ; d6 = p2_or
+
+    ; Plane 0:
+    and.w       d3,(a0)
+    or.w        d4,(a0)
+    ; Plane 1:
+    and.w       d3,40(a0)
+    or.w        d5,40(a0)
+    ; Plane 2:
+    and.w       d3,80(a0)
+    or.w        d6,80(a0)
+    ; Plane 3:
+    move.w      (a1),d4                 ; d4 = p3_or
+    and.w       d3,120(a0)
+    or.w        d4,120(a0)
+    bra.s       .next_line_1w
+
+.solid_blue_1w:
+    btst        #0,d1
+    bne.s       .odd_solid_1w
+    ; EVEN scanline: Plane 0 OR $AAAA, Planes 1..3 AND $5555
+    or.w        #$aaaa,(a0)
+    and.w       #$5555,40(a0)
+    and.w       #$5555,80(a0)
+    and.w       #$5555,120(a0)
+    bra.s       .next_line_1w
+
+.odd_solid_1w:
+    ; ODD scanline: Plane 0 OR $5555, Planes 1..3 AND $AAAA
+    or.w        #$5555,(a0)
+    and.w       #$aaaa,40(a0)
+    and.w       #$aaaa,80(a0)
+    and.w       #$aaaa,120(a0)
+
+.next_line_1w:
+    addq.w      #1,d1                   ; next scanline Y
+    lea         TILEMAP_LINE_STRIDE(a0),a0 ; next scanline in DisplayScreen (+160)
+    dbra        d7,.loop_1w
+    bra         .exit
+
+    ; -------------------------------------------------------------------------
+    ; 2-Word Shifted Submersion (32px span)
+    ; -------------------------------------------------------------------------
+.submerge_2words:
+    subq.w      #1,d7                   ; for dbra
+.loop_2w:
+    cmp.w       d2,d1                   ; scanline Y >= WaterPixelY?
+    blt         .next_line_2w
+
+    move.w      d1,d6
+    sub.w       d2,d6                   ; d6 = 0, 1, 2, 3, 4, ...
+    cmp.w       #4,d6
+    bge.s       .solid_blue_2w
+
+    ; Wave crest profile (d6 = 0..3):
+    btst        #0,d1
+    bne.s       .odd_table_2w
+    lea         WaterWaveTable_Even(pc),a1
+    bra.s       .table_ready_2w
+.odd_table_2w:
+    lea         WaterWaveTable_Odd(pc),a1
+.table_ready_2w:
+    lsl.w       #1,d6                   ; d6 * 2
+    move.w      d6,d3
+    lsl.w       #2,d6                   ; d6 * 8
+    add.w       d3,d6                   ; d6 * 10
+    adda.w      d6,a1
+
+    move.w      (a1)+,d3                ; d3 = not_m
+    move.w      (a1)+,d4                ; d4 = p0_or
+    move.w      (a1)+,d5                ; d5 = p1_or
+    move.w      (a1)+,d6                ; d6 = p2_or
+
+    ; Plane 0:
+    and.w       d3,(a0)
+    or.w        d4,(a0)
+    and.w       d3,2(a0)
+    or.w        d4,2(a0)
+    ; Plane 1:
+    and.w       d3,40(a0)
+    or.w        d5,40(a0)
+    and.w       d3,42(a0)
+    or.w        d5,42(a0)
+    ; Plane 2:
+    and.w       d3,80(a0)
+    or.w        d6,80(a0)
+    and.w       d3,82(a0)
+    or.w        d6,82(a0)
+    ; Plane 3:
+    move.w      (a1),d4                 ; d4 = p3_or
+    and.w       d3,120(a0)
+    or.w        d4,120(a0)
+    and.w       d3,122(a0)
+    or.w        d4,122(a0)
+    bra.s       .next_line_2w
+
+.solid_blue_2w:
+    btst        #0,d1
+    bne.s       .odd_solid_2w
+    ; EVEN scanline
+    or.w        #$aaaa,(a0)
+    or.w        #$aaaa,2(a0)
+    and.w       #$5555,40(a0)
+    and.w       #$5555,42(a0)
+    and.w       #$5555,80(a0)
+    and.w       #$5555,82(a0)
+    and.w       #$5555,120(a0)
+    and.w       #$5555,122(a0)
+    bra.s       .next_line_2w
+
+.odd_solid_2w:
+    ; ODD scanline
+    or.w        #$5555,(a0)
+    or.w        #$5555,2(a0)
+    and.w       #$aaaa,40(a0)
+    and.w       #$aaaa,42(a0)
+    and.w       #$aaaa,80(a0)
+    and.w       #$aaaa,82(a0)
+    and.w       #$aaaa,120(a0)
+    and.w       #$aaaa,122(a0)
+
+.next_line_2w:
+    addq.w      #1,d1
+    lea         TILEMAP_LINE_STRIDE(a0),a0
+    dbra        d7,.loop_2w
+
+.exit:
+    POPM        d0-d7/a0-a3
+    rts
+
+
+;==============================================================================
 ; TilemapUpdateWater  -  Advance rising water layer upwards
 ;
 ; Called every frame from GameRun in gamestatus.asm.
@@ -779,10 +1002,10 @@ TilemapUpdateWater:
     move.w      d4,(a1)+
     dbra        d3,.fill_deep
 
-    ; Update player sprite priority if water has reached the player's row
-    move.l      PlayerPtrs(a5),d0
+    ; Update player priority if water has reached the player's row
+    lea         Player(a5),a0
+    tst.w       Player_Status(a0)
     beq.s       .pop_exit
-    movea.l     d0,a0
     cmp.w       Player_Y(a0),d1
     bgt.s       .pop_exit               ; water row d1 > player row (still below)
     move.w      #$0000,cpBPLCON2+2
@@ -809,15 +1032,50 @@ TilemapUpdateWater:
 ;==============================================================================
 
 ;==============================================================================
+; TilemapEraseEnemies  -  Restore pristine background under all previous enemy blits
+;
+; Must be called at the start of each frame alongside TilemapErasePlayer,
+; BEFORE any BOBs (player or enemy) are drawn.  This ensures that erasing an
+; enemy never wipes out a player that was already drawn onto DisplayScreen.
+;
+; Destroys: d0-d7, a0-a4 (preserves a5, a6)
+;==============================================================================
+
+TilemapEraseEnemies:
+    PUSHM       d0-d7/a0-a4
+
+    move.w      ActiveEnemyCount(a5),d7
+    beq.s       .done_erase_enemies
+    subq.w      #1,d7
+    lea         ActiveEnemies(a5),a4    ; a4 = current ActiveEnemy pointer
+
+.erase_loop:
+    tst.w       ei_Drawn(a4)
+    beq.s       .next_erase
+    bsr         TilemapEraseEnemy
+    clr.w       ei_Drawn(a4)
+.next_erase:
+    lea         ei_SIZEOF(a4),a4
+    dbra        d7,.erase_loop
+
+.done_erase_enemies:
+    WAITBLIT                            ; ensure last erase blit finishes
+    POPM        d0-d7/a0-a4
+    rts
+
+
+;==============================================================================
 ; TilemapUpdateEnemies  -  Per-frame dynamic enemy update & sub-pixel blit
 ;
 ; Sequence:
-;   1. For each active enemy that was drawn previously (ei_Drawn != 0):
-;      Erase previous footprint by restoring pristine rectangle from NonDisplayScreen.
-;   2. Update patrol movement: ei_X += ei_Direction * ei_Speed
+;   1. Update patrol movement: ei_X += ei_Direction * ei_Speed
 ;      Bounce against [ei_PatrolMinX .. ei_PatrolMaxX] and invert direction.
-;   3. Advance animation frame every 8 frames (0..3).
-;   4. If within visible camera window, blit using sub-pixel barrel shifter (BLTCON0 shift).
+;   2. Advance animation frame every 8 frames (0..3).
+;   3. If within visible camera window, blit using sub-pixel barrel shifter (BLTCON0 shift).
+;      Uses cookie-cutter mask ($0FCA) to draw cleanly over background and player!
+;
+; Note: Erasing previous enemy footprints is handled by TilemapEraseEnemies
+; at the start of the frame BEFORE TilemapDrawPlayer.
 ;
 ; Destroys: d0-d7, a0-a4 (preserves a5, a6)
 ;==============================================================================
@@ -828,34 +1086,13 @@ TilemapUpdateEnemies:
     move.w      ActiveEnemyCount(a5),d7
     beq         .done_update_enemies
     subq.w      #1,d7
-    lea         ActiveEnemies(a5),a4    ; a4 = current ActiveEnemy pointer
-
-    ; -------------------------------------------------------------------------
-    ; Pass 1: Erase Previous Position from DisplayScreen (all drawn enemies)
-    ; -------------------------------------------------------------------------
-.erase_loop:
-    tst.w       ei_Type(a4)
-    beq.s       .next_erase
-    tst.w       ei_Drawn(a4)
-    beq.s       .next_erase
-    bsr         TilemapEraseEnemy
-    clr.w       ei_Drawn(a4)
-.next_erase:
-    lea         ei_SIZEOF(a4),a4
-    dbra        d7,.erase_loop
-
-    ; -------------------------------------------------------------------------
-    ; Pass 2: Update Movement, Patrol Bounds, Animation & Draw
-    ; -------------------------------------------------------------------------
-    move.w      ActiveEnemyCount(a5),d7
-    subq.w      #1,d7
     lea         ActiveEnemies(a5),a4
 
 .update_draw_loop:
     tst.w       ei_Type(a4)
     beq         .next_update_draw
 
-    ; Step 2: Update Movement & Patrol Turnaround
+    ; Step 1: Update Movement & Patrol Turnaround
     move.w      ei_Direction(a4),d0     ; +1 or -1
     muls.w      ei_Speed(a4),d0         ; delta X
     add.w       d0,ei_X(a4)
@@ -909,6 +1146,7 @@ TilemapEraseEnemy:
 
     ; Screen byte offset in 4-plane interleaved = (Y * 160) + ((X / 16) * 2)
     mulu.w      #TILEMAP_LINE_STRIDE,d1
+    moveq       #0,d2
     move.w      d0,d2
     lsr.w       #4,d2
     add.w       d2,d2                   ; byte column
@@ -987,6 +1225,7 @@ TilemapDrawEnemySubPixel:
     move.w      ei_Type(a4),d2
     subq.w      #1,d2                   ; 0..7
     mulu.w      #ENEMY_ROW_STRIDE,d2
+    moveq       #0,d3
     move.w      ei_AnimFrame(a4),d3
     add.w       d3,d3                   ; d3 = AnimFrame * 2 bytes
     add.l       d3,d2
@@ -1000,6 +1239,7 @@ TilemapDrawEnemySubPixel:
     ; Dest offset = (Y * 160) + ((X / 16) * 2)
     move.w      d1,d2
     mulu.w      #TILEMAP_LINE_STRIDE,d2
+    moveq       #0,d3
     move.w      d0,d3
     lsr.w       #4,d3
     add.w       d3,d3                   ; byte column
@@ -1075,98 +1315,390 @@ TilemapDrawEnemySubPixel:
     move.w      d1,ei_PrevY(a4)
     move.w      #1,ei_Drawn(a4)
 
-    ; Check if water level has reached the row that this enemy is on
+    ; Submerge enemy in DisplayScreen if water has reached it
     move.w      WaterPixelY(a5),d2      ; d2 = WaterPixelY
-    bmi         .exit_draw              ; if no water (< 0), done
-    move.w      d1,d3                   ; d3 = enemy Y
-    add.w       #ENEMY_FRAME_HEIGHT-1,d3 ; d3 = enemy bottom scanline
-    cmp.w       d2,d3                   ; compare bottom scanline with WaterPixelY
-    blt         .exit_draw              ; if bottom scanline < WaterPixelY, completely dry!
-
-    ; Water has reached this enemy: submerge enemy in DisplayScreen!
-    WAITBLIT                            ; wait for blitter to finish drawing enemy
-
-    move.w      d7,-(sp)                ; preserve caller's loop counter
-
-    ; Check if 1 word wide (aligned) or 2 words wide (shifted)
-    move.w      d0,d3
-    andi.w      #15,d3
-    bne.s       .submerge_2words
-
-    ; --- 1 Word Wide (16px aligned blit) ---
-    move.w      #ENEMY_FRAME_HEIGHT-1,d7 ; 16 scanlines
-    movea.l     a2,a0                   ; a0 = scanline pointer in DisplayScreen
-.loop_1w:
-    cmp.w       d2,d1                   ; is scanline Y >= WaterPixelY?
-    blt.s       .next_line_1w           ; if not, dry scanline!
-
-    btst        #0,d1
-    bne.s       .odd_1w
-    ; EVEN scanline: Plane 0 OR $AAAA, Planes 1..3 AND $5555
-    or.w        #$aaaa,(a0)
-    and.w       #$5555,40(a0)
-    and.w       #$5555,80(a0)
-    and.w       #$5555,120(a0)
-    bra.s       .next_line_1w
-
-.odd_1w:
-    ; ODD scanline: Plane 0 OR $5555, Planes 1..3 AND $AAAA
-    or.w        #$5555,(a0)
-    and.w       #$aaaa,40(a0)
-    and.w       #$aaaa,80(a0)
-    and.w       #$aaaa,120(a0)
-
-.next_line_1w:
-    addq.w      #1,d1                   ; next scanline Y
-    lea         TILEMAP_LINE_STRIDE(a0),a0 ; next scanline in DisplayScreen (+160)
-    dbra        d7,.loop_1w
-    bra.s       .pop_submerge
-
-.submerge_2words:
-    ; --- 2 Words Wide (shifted blit) ---
-    move.w      #ENEMY_FRAME_HEIGHT-1,d7 ; 16 scanlines
-    movea.l     a2,a0                   ; a0 = scanline pointer in DisplayScreen
-.loop_2w:
-    cmp.w       d2,d1                   ; is scanline Y >= WaterPixelY?
-    blt.s       .next_line_2w
-
-    btst        #0,d1
-    bne.s       .odd_2w
-    ; EVEN scanline
-    or.w        #$aaaa,(a0)
-    or.w        #$aaaa,2(a0)
-    and.w       #$5555,40(a0)
-    and.w       #$5555,42(a0)
-    and.w       #$5555,80(a0)
-    and.w       #$5555,82(a0)
-    and.w       #$5555,120(a0)
-    and.w       #$5555,122(a0)
-    bra.s       .next_line_2w
-
-.odd_2w:
-    ; ODD scanline
-    or.w        #$5555,(a0)
-    or.w        #$5555,2(a0)
-    and.w       #$aaaa,40(a0)
-    and.w       #$aaaa,42(a0)
-    and.w       #$aaaa,80(a0)
-    and.w       #$aaaa,82(a0)
-    and.w       #$aaaa,120(a0)
-    and.w       #$aaaa,122(a0)
-
-.next_line_2w:
-    addq.w      #1,d1
-    lea         TILEMAP_LINE_STRIDE(a0),a0
-    dbra        d7,.loop_2w
-
-.pop_submerge:
-    move.w      (sp)+,d7
+    bmi.s       .exit_draw              ; if no water (< 0), done
+    movea.l     a2,a0                   ; a0 = destination in DisplayScreen
+    move.w      #ENEMY_FRAME_HEIGHT,d7  ; 16 scanlines
+    bsr         TilemapSubmergeActor
 
 .exit_draw:
     rts
 
 .culled_enemy:
     clr.w       ei_Drawn(a4)
+    rts
+
+
+;==============================================================================
+; TilemapErasePlayer  -  Restore background under previous player blit
+;
+; In:  a4 = pointer to active Player struct
+;      a5 = Variables base
+;      a6 = CUSTOM chip base ($dff000)
+; Destroys: d0-d4, a0-a2
+;==============================================================================
+
+TilemapErasePlayer:
+    tst.w       Player_PrevDrawn(a4)
+    beq         .exit                   ; nothing drawn last frame, skip
+
+    clr.w       Player_PrevDrawn(a4)    ; reset drawn flag
+
+    move.w      Player_PrevX(a4),d0
+    move.w      Player_PrevY(a4),d1
+
+    ; Screen byte offset = (Y * 160) + ((X / 16) * 2)
+    mulu.w      #TILEMAP_LINE_STRIDE,d1 ; d1 = Y * 160
+    moveq       #0,d2
+    move.w      d0,d2
+    lsr.w       #4,d2
+    add.w       d2,d2                   ; byte column
+    add.l       d2,d1
+
+    lea         NonDisplayScreen,a0
+    lea         DisplayScreen,a1
+    adda.l      d1,a0                   ; a0 = pristine background source
+    adda.l      d1,a1                   ; a1 = display screen destination
+
+    ; Check if X was word-aligned (1 word) or shifted (2 words)
+    and.w       #15,d0
+    beq.s       .erase_1word
+
+    ; --- 2-Word Wide Restore (32px shifted) ---
+    WAITBLIT
+    move.w      #$09f0,BLTCON0(a6)      ; D = A (direct copy)
+    move.w      #$0000,BLTCON1(a6)
+    move.l      #$ffffffff,BLTAFWM(a6)
+    move.w      #SCREEN_WIDTH_BYTE-4,BLTAMOD(a6) ; 40 - 4 = 36 bytes
+    move.w      #SCREEN_WIDTH_BYTE-4,BLTDMOD(a6) ; 40 - 4 = 36 bytes
+    move.l      a0,BLTAPT(a6)
+    move.l      a1,BLTDPT(a6)
+    move.w      #(PLAYER_HEIGHT*PLAYER_PLANES<<6)|2,BLTSIZE(a6) ; 96 rows x 2 words
+    rts
+
+.erase_1word:
+    ; --- 1-Word Wide Restore (16px aligned) ---
+    WAITBLIT
+    move.w      #$09f0,BLTCON0(a6)      ; D = A
+    move.w      #$0000,BLTCON1(a6)
+    move.l      #$ffffffff,BLTAFWM(a6)
+    move.w      #SCREEN_WIDTH_BYTE-2,BLTAMOD(a6) ; 40 - 2 = 38 bytes
+    move.w      #SCREEN_WIDTH_BYTE-2,BLTDMOD(a6) ; 40 - 2 = 38 bytes
+    move.l      a0,BLTAPT(a6)
+    move.l      a1,BLTDPT(a6)
+    move.w      #(PLAYER_HEIGHT*PLAYER_PLANES<<6)|1,BLTSIZE(a6) ; 96 rows x 1 word
+.exit:
+    rts
+
+
+;==============================================================================
+; TilemapDrawPlayer  -  Blit player BOB onto DisplayScreen with foreground & water depth
+;
+; In:  a4 = pointer to active Player struct
+;      a5 = Variables base
+;      a6 = CUSTOM chip base ($dff000)
+; Destroys: d0-d7, a0-a4
+;==============================================================================
+
+TilemapDrawPlayer:
+    tst.w       Player_Status(a4)
+    beq         .culled                 ; inactive player, do not draw
+
+    ; 1. Calculate World Pixel X: Player_X * 16 + Player_XDec
+    move.w      Player_X(a4),d0
+    lsl.w       #4,d0
+    add.w       Player_XDec(a4),d0      ; d0 = World X (0..319)
+
+    ; 2. Calculate World Pixel Y: Player_Y * 16 + Player_YDec - 8 (lift 8px)
+    move.w      Player_Y(a4),d1
+    lsl.w       #4,d1
+    add.w       Player_YDec(a4),d1
+    subq.w      #8,d1                   ; d1 = World Y (top of 24px sprite)
+
+    ; Adjust Y for bridge sag if walking across a bridge
+    move.w      d1,-(sp)                ; preserve World Y
+    move.w      d0,d1                   ; d1 = World X for GetBridgeYOffset
+    bsr         GetBridgeYOffset        ; returns downward offset in d3
+    move.w      (sp)+,d1                ; restore World Y
+    add.w       d3,d1                   ; apply bridge sag
+
+    ; 3. Viewport Culling & Bounds Checks
+    cmp.w       #0,d0
+    blt         .culled
+    cmp.w       #320-16,d0
+    bgt         .culled
+    cmp.w       #0,d1
+    blt         .culled
+    cmp.w       #LEVEL_SCREEN_HEIGHT-PLAYER_HEIGHT,d1
+    bgt         .culled
+
+    ; Camera viewport culling: CameraY - 24 <= Y <= CameraY + 224
+    move.w      TilemapCameraY(a5),d2
+    sub.w       #PLAYER_HEIGHT,d2
+    cmp.w       d2,d1
+    blt         .culled
+    add.w       #216+PLAYER_HEIGHT+24,d2
+    cmp.w       d2,d1
+    bgt         .culled
+
+    ; 4. Calculate Source Frame Pointer in PlayerRaw / PlayerMsk
+    ; Frame index = Player_BobOffset + PlayerFrame
+    move.w      Player_BobOffset(a4),d2
+    add.w       PlayerFrame(a5),d2   ; d2 = frame index (0..95)
+
+    ; Row = d2 >> 2 (div 4), Col = d2 & 3
+    moveq       #0,d3
+    move.w      d2,d3
+    lsr.w       #2,d3                   ; d3 = frame row (0..23)
+    mulu.w      #PLAYER_FRAME_STRIDE,d3 ; d3 = row byte offset (Row * 24 * 32 = Row * 768)
+
+    moveq       #0,d4
+    move.w      d2,d4
+    andi.w      #3,d4                   ; d4 = col (0..3)
+    add.w       d4,d4                   ; d4 = col * 2 bytes
+    add.l       d4,d3                   ; d3 = total source byte offset
+
+    lea         PlayerMsk,a0
+    lea         PlayerRaw,a1
+    adda.l      d3,a0                   ; a0 = mask source
+    adda.l      d3,a1                   ; a1 = raw graphic source
+
+    ; 5. Calculate Destination Screen Address
+    ; Dest offset = (Y * 160) + ((X / 16) * 2)
+    move.w      d1,d2
+    mulu.w      #TILEMAP_LINE_STRIDE,d2
+    moveq       #0,d3
+    move.w      d0,d3
+    lsr.w       #4,d3
+    add.w       d3,d3                   ; byte column
+    add.l       d3,d2
+
+    lea         DisplayScreen,a2
+    adda.l      d2,a2                   ; a2 = destination in DisplayScreen
+
+    ; 6. Check Barrel Shift (X & 15)
+    move.w      d0,d3
+    andi.w      #15,d3                  ; shift = 0..15
+    beq.s       .blit_aligned
+
+    ; --- 2-Word Shifted Blit (32px span) ---
+    lsl.w       #8,d3
+    lsl.w       #4,d3                   ; d3 = Shift << 12
+    move.w      d3,d4
+    ori.w       #$0fca,d3               ; d3 = BLTCON0 (USEA|B|C|D, minterm $CA)
+
+    WAITBLIT
+    move.w      d3,BLTCON0(a6)
+    move.w      d4,BLTCON1(a6)
+    move.l      #$ffff0000,BLTAFWM(a6)  ; mask out adjacent frame bleed
+
+    move.w      #PLAYER_SHEET_BYTES-4,BLTAMOD(a6) ; 8 - 4 = 4
+    move.w      #PLAYER_SHEET_BYTES-4,BLTBMOD(a6) ; 8 - 4 = 4
+    move.w      #SCREEN_WIDTH_BYTE-4,BLTCMOD(a6)  ; 40 - 4 = 36
+    move.w      #SCREEN_WIDTH_BYTE-4,BLTDMOD(a6)  ; 40 - 4 = 36
+
+    move.l      a0,BLTAPT(a6)           ; Mask
+    move.l      a1,BLTBPT(a6)           ; Graphic
+    move.l      a2,BLTCPT(a6)           ; Background
+    move.l      a2,BLTDPT(a6)           ; Destination
+
+    move.w      #(PLAYER_HEIGHT*PLAYER_PLANES<<6)|2,BLTSIZE(a6) ; 96 rows x 2 words
+    bra.s       .record_drawn
+
+.blit_aligned:
+    ; --- 1-Word Aligned Blit (16px span) ---
+    WAITBLIT
+    move.w      #$0fca,BLTCON0(a6)
+    move.w      #$0000,BLTCON1(a6)
+    move.l      #$ffffffff,BLTAFWM(a6)
+
+    move.w      #PLAYER_SHEET_BYTES-2,BLTAMOD(a6) ; 8 - 2 = 6
+    move.w      #PLAYER_SHEET_BYTES-2,BLTBMOD(a6) ; 8 - 2 = 6
+    move.w      #SCREEN_WIDTH_BYTE-2,BLTCMOD(a6)  ; 40 - 2 = 38
+    move.w      #SCREEN_WIDTH_BYTE-2,BLTDMOD(a6)  ; 40 - 2 = 38
+
+    move.l      a0,BLTAPT(a6)           ; Mask
+    move.l      a1,BLTBPT(a6)           ; Graphic
+    move.l      a2,BLTCPT(a6)           ; Background
+    move.l      a2,BLTDPT(a6)           ; Destination
+
+    move.w      #(PLAYER_HEIGHT*PLAYER_PLANES<<6)|1,BLTSIZE(a6) ; 96 rows x 1 word
+
+.record_drawn:
+    move.w      d0,Player_PrevX(a4)
+    move.w      d1,Player_PrevY(a4)
+    move.w      #1,Player_PrevDrawn(a4)
+
+    ; 7. Foreground Layer Stamp (in front of Player BOB)
+    ; Check if any foreground tiles in LevelDef_ForegroundMap overlap player bounding box
+    bsr         TilemapStampForegroundOverPlayer
+
+    ; 8. Water Submersion Check
+    move.w      WaterPixelY(a5),d2      ; d2 = WaterPixelY
+    bmi.s       .exit                   ; if no water (< 0), dry
+    movea.l     a2,a0                   ; a0 = destination in DisplayScreen
+    move.w      #PLAYER_HEIGHT,d7       ; 24 scanlines
+    bsr         TilemapSubmergeActor
+
+.exit:
+    rts
+
+.culled:
+    clr.w       Player_PrevDrawn(a4)
+    rts
+
+
+;==============================================================================
+; TilemapStampForegroundOverPlayer  -  Re-blit foreground tiles overlapping player
+;
+; In:  d0.w = Player World X (0..319)
+;      d1.w = Player World Y (0..671)
+;      a5   = Variables base
+;      a6   = CUSTOM ($dff000)
+; Preserves: d0, d1, a2, a4, a5, a6
+;==============================================================================
+TilemapStampForegroundOverPlayer:
+    PUSHM       d0-d7/a0-a4
+
+    move.l      CurrentLevelDef(a5),d2
+    beq         .done_fg
+    movea.l     d2,a0
+    move.l      LevelDef_ForegroundMap(a0),d2
+    beq         .done_fg
+    movea.l     d2,a2                   ; a2 = ForegroundMap binary pointer
+    addq.l      #8,a2                   ; skip 8-byte map header
+
+    ; Calculate start/end columns: d0 = X (0..319)
+    move.w      d0,d6
+    lsr.w       #4,d6                   ; d6 = start col = X / 16 (0..19)
+    move.w      d0,d7
+    add.w       #PLAYER_WIDTH-1,d7
+    lsr.w       #4,d7                   ; d7 = end col = (X + 15) / 16 (0..19)
+
+    ; Calculate start/end rows: d1 = Y (0..671)
+    move.w      d1,d4
+    lsr.w       #4,d4                   ; d4 = start row = Y / 16 (0..41)
+    move.w      d1,d5
+    add.w       #PLAYER_HEIGHT-1,d5
+    lsr.w       #4,d5                   ; d5 = end row = (Y + 23) / 16 (0..41)
+
+    ; Clamp rows and cols to valid map grid
+    cmp.w       #TILEMAP_VIEW_COLS-1,d7
+    ble.s       .col_ok
+    move.w      #TILEMAP_VIEW_COLS-1,d7
+.col_ok:
+    cmp.w       #TILEMAP_MAP_HEIGHT-1,d5
+    ble.s       .row_ok
+    move.w      #TILEMAP_MAP_HEIGHT-1,d5
+.row_ok:
+
+    ; Loop row by row: cur_row in d2 from d4 to d5
+    move.w      d4,d2
+.fg_row_loop:
+    cmp.w       d5,d2
+    bgt.s       .done_fg
+
+    ; Loop col by col: cur_col in d3 from d6 to d7
+    move.w      d6,d3
+.fg_col_loop:
+    cmp.w       d7,d3
+    bgt.s       .next_fg_row
+
+    ; Calculate map tile offset: (row * 20 + col) * 2
+    move.w      d2,d0
+    mulu.w      #TILEMAP_VIEW_COLS,d0
+    add.w       d3,d0
+    add.w       d0,d0                   ; byte offset in ForegroundMap
+    move.w      0(a2,d0.w),d0           ; read Little-Endian word
+    lsr.w       #8,d0                   ; clean Big-Endian tile index (0..255)
+    beq.s       .next_fg_col            ; empty tile, skip
+
+    ; Tile found! Blit single tile (d0 = tile index, d3 = col, d2 = row)
+    bsr         TilemapBlitSingleTile
+
+.next_fg_col:
+    addq.w      #1,d3
+    bra.s       .fg_col_loop
+
+.next_fg_row:
+    addq.w      #1,d2
+    bra.s       .fg_row_loop
+
+.done_fg:
+    POPM        d0-d7/a0-a4
+    rts
+
+
+;==============================================================================
+; TilemapBlitSingleTile  -  Cookie-cut blit one 16x16 tile into DisplayScreen
+;
+; In:  d0.w = tile index (1-based from tileset, 0..255)
+;      d2.w = tile row (0..41)
+;      d3.w = tile column (0..19)
+;      a5   = Variables base
+;      a6   = CUSTOM base ($dff000)
+; Preserves: d2, d3, d4-d7, a2, a5, a6
+;==============================================================================
+TilemapBlitSingleTile:
+    PUSHM       d1-d3/a0-a4
+
+    ; Calculate source tile graphics and mask offsets
+    ; Tileset has 11 tiles per row (176 / 16)
+    ext.l       d0
+    divu.w      #TILEMAP_TILES_PER_ROW,d0
+    clr.l       d1
+    move.w      d0,d1                   ; d1.w = tileset row
+    swap        d0                      ; d0.w = tileset column
+
+    ; Source offset = (row * 1408) + (col * 2)
+    mulu.w      #TILEMAP_TILE_HEIGHT*TILEMAP_SHEET_BYTES*TILEMAP_TILE_PLANES,d1
+    mulu.w      #TILEMAP_TILE_BYTES,d0
+    add.l       d1,d0                   ; d0 = total byte offset in tileset
+
+    move.l      CurrentLevelDef(a5),d1
+    beq.s       .legacy_ts
+    movea.l     d1,a3
+    movea.l     LevelDef_TilesetMsk(a3),a3
+    movea.l     d1,a4
+    movea.l     LevelDef_TilesetRaw(a4),a4
+    bra.s       .ts_ready
+.legacy_ts:
+    lea         GameTilesMsk,a3
+    lea         GameTilesRaw,a4
+.ts_ready:
+    add.l       d0,a3                   ; a3 = source mask pointer
+    add.l       d0,a4                   ; a4 = source graphic pointer
+
+    ; Destination screen address: (row * 2560) + (col * 2)
+    move.w      d2,d1
+    mulu.w      #TILEMAP_ROW_STRIDE,d1  ; row * 2560
+    moveq       #0,d0
+    move.w      d3,d0
+    add.w       d0,d0                   ; col * 2
+    add.l       d0,d1                   ; screen offset
+
+    lea         DisplayScreen,a1
+    adda.l      d1,a1                   ; a1 = dest pointer in DisplayScreen
+
+    WAITBLIT
+    move.w      #$0fca,BLTCON0(a6)      ; cookie-cut minterm $CA
+    move.w      #$0000,BLTCON1(a6)
+    move.l      #$ffffffff,BLTAFWM(a6)
+
+    move.w      #TILEMAP_SHEET_BYTES-TILEMAP_TILE_BYTES,BLTAMOD(a6) ; 22 - 2 = 20
+    move.w      #TILEMAP_SHEET_BYTES-TILEMAP_TILE_BYTES,BLTBMOD(a6) ; 22 - 2 = 20
+    move.w      #SCREEN_WIDTH_BYTE-TILEMAP_TILE_BYTES,BLTCMOD(a6)   ; 40 - 2 = 38
+    move.w      #SCREEN_WIDTH_BYTE-TILEMAP_TILE_BYTES,BLTDMOD(a6)   ; 40 - 2 = 38
+
+    move.l      a3,BLTAPT(a6)           ; Mask
+    move.l      a4,BLTBPT(a6)           ; Graphic
+    move.l      a1,BLTCPT(a6)           ; Background
+    move.l      a1,BLTDPT(a6)           ; Destination
+
+    move.w      #(TILEMAP_TILE_HEIGHT*TILEMAP_TILE_PLANES<<6)|(TILEMAP_TILE_BYTES/2),BLTSIZE(a6) ; 64 rows x 1 word
+
+    POPM        d1-d3/a0-a4
     rts
 
 
@@ -1238,7 +1770,7 @@ TilemapGetAttribute:
 
 TilemapSnapCamera:
     PUSHM       d0-d7/a0-a4
-    move.l      PlayerPtrs(a5),a4          ; a4 -> active player struct
+    lea         Player(a5),a4              ; a4 -> player struct
     tst.w       Player_Status(a4)          ; is player active?
     beq         .snap_exit
 
@@ -1302,7 +1834,7 @@ TilemapSnapCamera:
 
 TilemapUpdateCamera:
     PUSHM       d0-d7/a0-a4
-    move.l      PlayerPtrs(a5),a4          ; a4 -> active player struct
+    lea         Player(a5),a4              ; a4 -> player struct
     tst.w       Player_Status(a4)          ; is player active?
     beq         .cam_exit                  ; no -> nothing to track
 
@@ -1427,10 +1959,10 @@ TilemapApplyCameraY:
     and.w       #15,d2
     move.w      d2,TilemapFineY(a5)
 
-    ; Refresh player hardware sprite positioning for new camera offset
+    ; Refresh player BOB animation frame for new camera offset
     ; using the currently active animation frame (preserved across fall, ladder, walk)
-    move.w      PlayerSpriteFrame(a5),d0
-    bsr         ShowSprite
+    move.w      PlayerFrame(a5),d0
+    bsr         ShowPlayer
 
     ; Update Copper background sky gradient with 1/2 vertical parallax
     bsr         TilemapUpdateCopperSky
@@ -1614,9 +2146,9 @@ TilemapDrawDebugOverlay:
     move.w      d6,PrevDebugCameraY(a5)
     move.w      #1,PrevDebugDrawn(a5)
 
-    move.l      PlayerPtrs(a5),d0
+    lea         Player(a5),a4               ; a4 -> player struct
+    tst.w       Player_Status(a4)
     beq         .pop_exit
-    movea.l     d0,a4                       ; a4 -> active player struct
 
     ; -------------------------------------------------------------
     ; Line 1: CAM:yyy ROW:rr FINE:ff  (24 chars padded)
@@ -1640,8 +2172,18 @@ TilemapDrawDebugOverlay:
     move.w      TilemapFineY(a5),d0
     bsr         DebugWriteDec2
 
-    move.b      #' ',(a1)+
-    move.b      #' ',(a1)+
+    lea         .str_mode(pc),a0
+    bsr         DebugWriteString
+
+    tst.w       SlowMode(a5)
+    bne.s       .mode_slow
+    lea         .str_mode_run(pc),a0
+    bra.s       .mode_done
+.mode_slow:
+    lea         .str_mode_slow(pc),a0
+.mode_done:
+    bsr         DebugWriteString
+
     clr.b       (a1)                        ; null terminate
 
     ; Draw Line 1 at CameraY + 2, X column 1
@@ -1673,10 +2215,6 @@ TilemapDrawDebugOverlay:
     move.w      Player_YDec(a4),d0
     bsr         DebugWriteSigned2
 
-    move.b      #' ',(a1)+
-    move.b      #' ',(a1)+
-    move.b      #' ',(a1)+
-    move.b      #' ',(a1)+
     clr.b       (a1)                        ; null terminate
 
     ; Draw Line 2 at CameraY + 11, X column 1
@@ -1722,8 +2260,6 @@ TilemapDrawDebugOverlay:
     move.w      WaterCurrentRow(a5),d0
     bsr         DebugWriteDec2
 
-    move.b      #' ',(a1)+
-    move.b      #' ',(a1)+
     clr.b       (a1)                        ; null terminate
 
     ; Draw Line 3 at CameraY + 20, X column 1
@@ -1745,8 +2281,11 @@ TilemapDrawDebugOverlay:
 .str_ply_y: dc.b    " Y:",0
 .str_act:   dc.b    "ACT:",0
 .str_dir:   dc.b    " DIR:",0
-.str_enm:   dc.b    " ENM:",0
-.str_wtr:   dc.b    " WTR:",0
+.str_enm:       dc.b    " ENM:",0
+.str_wtr:       dc.b    " WTR:",0
+.str_mode:      dc.b    " MODE:",0
+.str_mode_run:  dc.b    "RUN ",0
+.str_mode_slow: dc.b    "SLOW",0
     even
 
 
@@ -1766,7 +2305,7 @@ TilemapDrawDebugOverlay:
 ;==============================================================================
 
 DebugDrawLine:
-    PUSHM       d0-d5/d7/a0-a3
+    PUSHM       d0-d5/d7/a0-a4
 
     ; Base pointer in DisplayScreen: (Y * 160) + X + DisplayScreen
     mulu.w      #TILEMAP_LINE_STRIDE,d0     ; d0.l = 32-bit unsigned offset
@@ -1774,6 +2313,7 @@ DebugDrawLine:
     ext.l       d1
     add.l       d1,d0
     movea.l     d0,a1                       ; a1 = target byte in DisplayScreen (Plane 0)
+    lea         FontData,a2                 ; a2 = base of FontData
 
 .char_loop:
     move.b      (a0)+,d2
@@ -1791,14 +2331,13 @@ DebugDrawLine:
     sub.b       #32,d2
     and.w       #$00ff,d2
     lsl.w       #3,d2                       ; d2 = (char - 32) * 8
-    lea         FontData,a2
-    adda.w      d2,a2                       ; a2 -> 8 bytes of glyph
+    lea         (a2,d2.w),a4                ; a4 -> 8 bytes of glyph
 
     ; Render 8 scanlines for this character
     movea.l     a1,a3                       ; a3 = Plane 0 for current row
     moveq       #8-1,d7
 .row_loop:
-    move.b      (a2)+,d3
+    move.b      (a4)+,d3
     move.b      d3,d4
     lsr.b       #1,d4
     or.b        d4,d3                       ; bold smear
@@ -1815,7 +2354,7 @@ DebugDrawLine:
     bra.s       .char_loop
 
 .done:
-    POPM        d0-d5/d7/a0-a3
+    POPM        d0-d5/d7/a0-a4
     rts
 
 

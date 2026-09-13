@@ -16,7 +16,7 @@
 ; Global register conventions (held constant after Init):
 ;   a5 = Variables base pointer  (Fast RAM BSS block)
 ;   a6 = $dff000  CUSTOM chip base
-;   a4 = current Player structure pointer (set each frame from PlayerPtrs)
+;   a4 = Player structure pointer (lea Player(a5),a4)
 ;   a3 = current Actor  structure pointer (set by actor routines)
 ;
 ;==============================================================================
@@ -152,8 +152,15 @@ QuitToOS:
 ;==============================================================================
 
 Init:
-
     move.w     #GAME_INIT,GameStatus(a5)
+    clr.w      SlowMode(a5)
+    clr.w      SlowModeHold(a5)
+    clr.w      PrevKeyS(a5)
+    clr.w      DebugOverlayActive(a5)
+    lea        Keys,a0
+    clr.b      KEY_S(a0)
+    clr.b      KEY_A(a0)
+    clr.b      KEY_D(a0)
     bsr        DetectNTSC          ; detect PAL/NTSC first; sets IsPAL(a5) for AudioInit
     bsr        DetectOCS           ; detect OCS vs ECS chipset; disables VBlank tracking in OCS mode
     bsr        AudioInit           ; install CIA-B music interrupt; reads IsPAL(a5) for CIA timing
@@ -569,6 +576,14 @@ EnemySpritesMsk:
     incbin     "assets/graphics/enemies/enemies_64x128.msk"
     even
 
+PlayerRaw:
+    incbin     "assets/graphics/sprites/player_bobs_64x576.raw"
+    even
+
+PlayerMsk:
+    incbin     "assets/graphics/sprites/player_bobs_64x576.msk"
+    even
+
 ; (The game complete screen reuses TitleLogoRaw/TitleLogoPal above â€” no
 ; dedicated logo assets; see GC_LOGO_OFF in gamecomplete.asm.)
 
@@ -669,7 +684,7 @@ TileSet:
 TileMask:
     ds.b       TILE_SIZE           ; minimal tile mask scratch buffer (480 bytes)
 PlayerHWSprites:
-    ds.b       PLAYERHWSPRITES_SIZE ; player hw sprites, decompressed by CopyOverlayAssets
+;   ds.b       PLAYERHWSPRITES_SIZE ; Deprecated - player converted to BOB in data_chip
 
 ScreenMemEnd:
     ds.b       200

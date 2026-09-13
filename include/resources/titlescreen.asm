@@ -656,6 +656,14 @@ TitleRun:
     bsr         TS_FlattenSky           ; kill the aurora so the wipe dissolves to black
     move.w      TitleLevelNum(a5),LevelId(a5)
     move.w      #1,EnterGameCopper(a5)  ; defer game-copper switch to end of wipe
+    clr.w       SlowMode(a5)            ; unconditionally start in RUN mode
+    clr.w       SlowModeHold(a5)
+    clr.w       PrevKeyS(a5)
+    clr.w       DebugOverlayActive(a5)
+    lea         Keys,a0
+    clr.b       KEY_S(a0)
+    clr.b       KEY_A(a0)
+    clr.b       KEY_D(a0)
     move.w      #LEVEL_INIT,GameStatus(a5)
     bra         .done
 

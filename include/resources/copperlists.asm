@@ -544,7 +544,7 @@ FontData:
     incbin  "assets/font/font.bin"
 
 ; Level-complete portrait images:
-; Millie and Molly face graphics removed (freed 5,120 bytes Chip RAM).
+PlayerPic:
 MilliePic:
 MollyPic:
 

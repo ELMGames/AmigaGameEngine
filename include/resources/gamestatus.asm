@@ -208,14 +208,14 @@ StateIdle:
 ;   1. LevelTest      - check if LevelComplete flag is set or F1/F2 pressed;
 ;                       if LevelComplete, sets GameStatus to LEVEL_INIT (3) to start the transition.
 ;   2. UpdateControls - sample keyboard, update ControlsHold / ControlsTrigger.
-;   3. PlayerLogic    - run the active player's action state machine one step.
-;                       The active player pointer is loaded from PlayerPtrs(a5)
+;   3. PlayerLogic    - run the player's action state machine one step.
+;                       The player pointer is loaded via lea Player(a5),a4
 ;                       into a4 before calling.
 ;   4. ActionCloudActors - animate enemy death cloud puff animations.
 ;   5. AnimateEnemies - cycle ENEMYFALL/ENEMYFLOAT tile frames at 2fps.
 ;
-; Note: DrawPlayers is currently commented out - sprite display is handled
-; inside PlayerLogic / ActionPlayerFall via ShowSprite.
+; Note: Player BOB frame selection is handled inside PlayerLogic / ActionPlayerFall
+; via ShowPlayer, and rendered onto DisplayScreen in TilemapDrawPlayer.
 ;==============================================================================
 
 GameRun:
@@ -234,29 +234,81 @@ GameRun:
 ;    bra         .skip
 ;.no_quit_fade
 
-    bsr         UpdateControls       ; read keyboard, compute trigger/hold bytes
-
     ; ESC: stop music and return to title screen immediately
     lea         Keys,a0
     tst.b       KEY_ESC(a0)
-    beq         .no_esc
+    beq.s       .no_esc
     clr.b       KEY_ESC(a0)
     bsr         AudioStopMod
-;    lea         cpPal,a0
-;    move.w      #FADE_SPEED_NORMAL,d0
-;    bsr         PaletteFadeOut
-;    move.w      #1,QuitFadeActive(a5)
     move.w      #TITLE_SETUP,GameStatus(a5)
     bra         .skip
-.no_esc
+.no_esc:
+
+    ; 'S': toggle SLOW MODE on/off
+    lea         Keys,a0
+    tst.b       KEY_S(a0)
+    beq.s       .no_key_s
+    clr.b       KEY_S(a0)              ; consume key press immediately
+    eori.w      #1,SlowMode(a5)
+    beq.s       .s_toggled_off         ; toggled off -> normal mode
+    ; Toggled ON: enter SLOW MODE & enable debug overlay to show MODE:SLOW
+    move.w      #1,DebugOverlayActive(a5)
+    clr.w       SlowModeHold(a5)
+    bra.s       .no_key_s
+.s_toggled_off:
+    ; Toggled OFF: exit SLOW MODE, disable debug overlay & erase it from screen
+    clr.w       DebugOverlayActive(a5)
+    bsr         TilemapEraseDebugOverlay
+    clr.w       SlowModeHold(a5)
+.no_key_s:
+
+    ; Check if SLOW MODE is active
+    tst.w       SlowMode(a5)
+    beq.s       .slow_mode_ok          ; normal mode: run frame normally
+
+    ; In SLOW MODE:
+    ; - Tap 'A' (press & release): advance by one iteration
+    ; - Hold 'A' (press & hold): advance at full speed continuously
+    lea         Keys,a0
+    tst.b       KEY_A(a0)
+    bne.s       .a_down
+
+    ; 'A' is NOT pressed: reset hold counter and pause
+    clr.w       SlowModeHold(a5)
+    bra.s       .slow_paused
+
+.a_down:
+    move.w      SlowModeHold(a5),d0
+    cmp.w       #SLOW_MODE_HOLD_DELAY,d0
+    bge.s       .slow_mode_ok          ; held >= SLOW_MODE_HOLD_DELAY: advance at full speed!
+    addq.w      #1,SlowModeHold(a5)    ; increment hold counter
+    tst.w       d0
+    beq.s       .slow_mode_ok          ; d0 == 0: initial press -> advance 1 iteration!
+                                       ; 1..delay-1: fall through to pause while waiting for hold delay
+
+.slow_paused:
+    ; Paused in SLOW MODE: keep debug overlay drawn and fresh with MODE:SLOW
+    bsr         TilemapDrawDebugOverlay
+    bra         .check_debug_keys
+
+.slow_mode_ok:
+    bsr         UpdateControls       ; read keyboard, compute trigger/hold bytes
 
     bsr         ActionDirtActors     ; draw dirt crumble first so falling actors render on top
 
-    move.l      PlayerPtrs(a5),a4    ; a4 -> active player structure (first entry)
+    ; Erase player and active enemies from last frame's position using pristine NonDisplayScreen
+    lea         Player(a5),a4        ; a4 -> player structure
+    bsr         TilemapErasePlayer
+    bsr         TilemapEraseEnemies  ; erase all dynamic enemies before ANY new drawing happens
+
     bsr         PlayerLogic          ; run player action state machine for this frame
     bsr         TilemapUpdateCamera  ; dynamically scroll camera if player moves up/down
     bsr         TilemapEraseDebugOverlay ; erase old debug text if camera moved or overlay disabled
     bsr         TilemapUpdateWater   ; advance rising water layer every 10 seconds
+
+    ; Draw player BOB on top of background platforms/ladders (with foreground & water depth)
+    lea         Player(a5),a4        ; a4 -> player structure
+    bsr         TilemapDrawPlayer
 
     bsr         ActionCloudActors    ; animate any pending enemy death cloud animations
     bsr         AnimateEnemies       ; cycle ENEMYFALL/ENEMYFLOAT tile frames (2fps)
@@ -267,38 +319,38 @@ GameRun:
 
     bsr         TilemapDrawDebugOverlay ; draw green debug HUD on top of active frame
 
-
     ; VHS rewind effect: tick while active (started by the undo in ActionIdle)
     tst.b       VHS_StateActive
-    beq         .no_vhs
+    beq.s       .no_vhs
     bsr         VHS_DoFrame          ; palette noise + scanline jitter; self-stops
-.no_vhs
+.no_vhs:
 
+.check_debug_keys:
     ; F4: jump directly to game complete screen (debug mode only)
     lea         Keys,a0
     tst.b       KEY_F4(a0)
-    beq         .no_f4
+    beq.s       .no_f4
     clr.b       KEY_F4(a0)
     tst.w       DebugMode(a5)       ; F4 only in debug mode (F5 to enable)
-    beq         .no_f4
+    beq.s       .no_f4
     move.w      #GAME_COMPLETE_SETUP,GameStatus(a5)
-    bra         .skip
-.no_f4
+    bra.s       .skip
+.no_f4:
 
     ; F5: enter/exit debug mode (enables F1/F2/F4; raster bar separately via F3)
     lea         Keys,a0
     tst.b       KEY_F5(a0)
-    beq         .no_f5
+    beq.s       .no_f5
     clr.b       KEY_F5(a0)
     tst.w       DebugMode(a5)
-    beq         .f5_enable
+    beq.s       .f5_enable
     clr.w       DebugMode(a5)       ; was on (any value): exit debug mode + clear bar
     clr.w       DebugOverlayActive(a5) ; disable debug text overlay
-    bra         .no_f5
-.f5_enable
+    bra.s       .no_f5
+.f5_enable:
     move.w      #1,DebugMode(a5)    ; enter debug mode (no raster bar yet)
     move.w      #1,DebugOverlayActive(a5) ; enable debug text overlay
-.no_f5
+.no_f5:
 
     ; 'D': toggle on-screen debug text overlay directly
     lea         Keys,a0
@@ -306,23 +358,25 @@ GameRun:
     beq.s       .no_key_d
     clr.b       KEY_D(a0)
     eori.w      #1,DebugOverlayActive(a5)
-.no_key_d
+    bne.s       .no_key_d
+    bsr         TilemapEraseDebugOverlay
+.no_key_d:
 
     ; F3: toggle raster CPU-timing bar (debug mode must be active via F5 first)
     lea         Keys,a0
     tst.b       KEY_F3(a0)
-    beq         .no_f3
+    beq.s       .no_f3
     clr.b       KEY_F3(a0)
     tst.w       DebugMode(a5)       ; bar only available in debug mode
-    beq         .no_f3
+    beq.s       .no_f3
     cmp.w       #2,DebugMode(a5)
-    beq         .f3_bar_off
+    beq.s       .f3_bar_off
     move.w      #2,DebugMode(a5)    ; enable raster bar
-    bra         .no_f3
-.f3_bar_off
+    bra.s       .no_f3
+.f3_bar_off:
     move.w      #1,DebugMode(a5)    ; disable raster bar (stay in debug mode)
-.no_f3
+.no_f3:
 
-.skip
+.skip:
     rts
 

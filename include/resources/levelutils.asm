@@ -36,15 +36,14 @@
 ;
 ; Sequence:
 ;   1. TurboClear NonDisplayScreen (blank starting canvas)
-;   2. Clear Player_Status for both Millie and Molly (both inactive until placed)
-;   3. Set PlayerPtrs: Millie -> [0], Molly -> [1]
-;   4. SetLevelAssets: decompress tile set, set palette
-;   5. GenTileMask: build blitter masks from tile graphics
-;   6. Seed the random number generator from LevelId (for deterministic wall variants)
-;   7. WallPaperLoadBase: load border/template row into GameMapCeiling + WallpaperWork
-;   8. WallPaperLoadLevel: copy level data from LevelData into GameMap + WallpaperWork
-;   9. WallPaperWalls: convert GameMap BLOCK_SOLID cells into wall tile types
-;  10. InitGameObjects: scan GameMap, create actor structs for all objects
+;   2. Clear Player_Status (inactive until placed)
+;   3. SetLevelAssets: decompress tile set, set palette
+;   4. GenTileMask: build blitter masks from tile graphics
+;   5. Seed the random number generator from LevelId (for deterministic wall variants)
+;   6. WallPaperLoadBase: load border/template row into GameMapCeiling + WallpaperWork
+;   7. WallPaperLoadLevel: copy level data from LevelData into GameMap + WallpaperWork
+;   8. WallPaperWalls: convert GameMap BLOCK_SOLID cells into wall tile types
+;   9. InitGameObjects: scan GameMap, create actor structs for all objects
 ;==============================================================================
 
 LevelInit:
@@ -53,16 +52,16 @@ LevelInit:
     move.l        #LEVEL_SCREEN_SIZE,d7
     bsr           TurboClear
 
-    ; Deactivate both players and clear their state until they are
-    ; re-initialized from the level map
-    lea           Millie(a5),a0
-    clr.w         Player_Status(a0)      ; Millie inactive
+    ; Clear player state until initialized from the level map
+    lea           Player(a5),a0
+    clr.w         Player_Status(a0)      ; Player inactive
     clr.w         Player_X(a0)           ; Clear tile position X
     clr.w         Player_Y(a0)           ; Clear tile position Y
     clr.w         Player_XDec(a0)        ; Clear sub-tile X offset
     clr.w         Player_YDec(a0)        ; Clear sub-tile Y offset
     clr.w         Player_PrevX(a0)       ; Clear previous X
     clr.w         Player_PrevY(a0)       ; Clear previous Y
+    clr.w         Player_PrevDrawn(a0)   ; Clear previous drawn flag
     clr.w         Player_NextX(a0)       ; Clear destination X
     clr.w         Player_NextY(a0)       ; Clear destination Y
     clr.w         Player_ActionCount(a0) ; Clear action countdown
@@ -73,27 +72,6 @@ LevelInit:
     clr.w         Player_DirectionY(a0)  ; Clear directional input
     clr.w         Player_Fallen(a0)      ; Clear falling flag
     clr.w         Player_ActionFrame(a0) ; Clear action frame counter
-    move.l        a0,PlayerPtrs(a5)      ; PlayerPtrs[0] -> Millie
-
-    lea           Molly(a5),a0
-    clr.w         Player_Status(a0)      ; Molly inactive
-    clr.w         Player_X(a0)           ; Clear tile position X
-    clr.w         Player_Y(a0)           ; Clear tile position Y
-    clr.w         Player_XDec(a0)        ; Clear sub-tile X offset
-    clr.w         Player_YDec(a0)        ; Clear sub-tile Y offset
-    clr.w         Player_PrevX(a0)       ; Clear previous X
-    clr.w         Player_PrevY(a0)       ; Clear previous Y
-    clr.w         Player_NextX(a0)       ; Clear destination X
-    clr.w         Player_NextY(a0)       ; Clear destination Y
-    clr.w         Player_ActionCount(a0) ; Clear action countdown
-    clr.w         Player_AnimFrame(a0)   ; Clear animation frame
-    move.w        #1,Player_Facing(a0)   ; Set facing to right
-    clr.w         Player_OnLadder(a0)    ; Clear ladder state
-    clr.w         Player_DirectionX(a0)  ; Clear directional input
-    clr.w         Player_DirectionY(a0)  ; Clear directional input
-    clr.w         Player_Fallen(a0)      ; Clear falling flag
-    clr.w         Player_ActionFrame(a0) ; Clear action frame counter
-    move.l        a0,PlayerPtrs+4(a5)    ; PlayerPtrs[1] -> Molly
 
     ; bsr           SetLevelAssets         ; legacy tile set decompression removed
     ; bsr           GenTileMask            ; legacy tile mask generation removed
@@ -157,28 +135,34 @@ LevelInit:
     move.b        (a0)+,(a1)+
     dbra          d0,.copy_gamemap
 
-    ; Setup Player 1 (Millie/Price) from LevelDef
-    lea           Millie(a5),a0
+    ; Setup Player from LevelDef
+    lea           Player(a5),a0
     move.w        #1,Player_Status(a0)
     move.w        LevelDef_P1Col(a2),d0
     move.w        d0,Player_X(a0)
     lsl.w         #4,d0
     move.w        d0,Player_PixelX(a0)       ; cache X * 16
-    move.w        #8,Player_XDec(a0)         ; centered 8px offset
+    clr.w         Player_XDec(a0)            ; tile-aligned
     move.w        LevelDef_P1Row(a2),d0
     move.w        d0,Player_Y(a0)
     lsl.w         #4,d0
     move.w        d0,Player_PixelY(a0)       ; cache Y * 16
+    clr.w         Player_YDec(a0)
     move.w        LevelDef_P1Facing(a2),Player_Facing(a0)
-    move.l        a0,PlayerPtrs(a5)          ; main active player
-    clr.l         PlayerPtrs+4(a5)
 
-    ; Apply sprite offset based on SelectedPlayer (0 = Price/frame 48, 1 = Cole/frame 0)
-    move.w        #48,Player_SpriteOffset(a0) ; default: Dr. Price
+    ; Apply BOB offset based on SelectedPlayer (0 = Price/frame 48, 1 = Cole/frame 0)
+    move.w        #48,Player_BobOffset(a0)    ; default: Dr. Price
+    move.w        #31,Player_FrozenBobBase(a0)
+    move.w        #34,Player_LadderFreezeId(a0)
+    move.b        #BLOCK_PLAYERSTART,Player_BlockId(a0)
+    move.b        #BLOCK_PLAYERLADDER,Player_LadderId(a0)
     tst.w         SelectedPlayer(a5)
     beq.s         .not_custom_level
-    clr.w         Player_SpriteOffset(a0)    ; Sgt. Cole
-
+    clr.w         Player_BobOffset(a0)       ; Sgt. Cole
+    move.w        #29,Player_FrozenBobBase(a0)
+    move.w        #33,Player_LadderFreezeId(a0)
+    move.b        #BLOCK_PLAYERSTART,Player_BlockId(a0)
+    move.b        #BLOCK_PLAYERLADDER,Player_LadderId(a0)
 .not_custom_level:
 
     bsr           WallPaperWalls         ; convert BLOCK_SOLID to wall tile graphics
@@ -243,8 +227,7 @@ WallPaperLoadLevel:
 ; them (and before InitGameObjects creates actor slots).
 ;
 ; Scans the full WALL_PAPER_WIDTH x WALL_PAPER_HEIGHT grid.  When it finds
-; BLOCK_MILLIESTART (7) or BLOCK_MOLLYSTART (8) it writes the tile column and
-; row into the respective player structure's Player_X / Player_Y fields.
+; BLOCK_PLAYERSTART (7) it writes the tile column and row into Player_X / Player_Y.
 ;
 ; Preserves all registers (PUSHALL / POPALL).
 ;==============================================================================
@@ -262,21 +245,11 @@ LevelInitPlayers:
     moveq       #0,d0
     move.b      (a0)+,d0                ; d0 = block type at (d1, d2)
 
-    cmp.b       #BLOCK_MILLIESTART,d0
-    bne         .check_molly
+    cmp.b       #BLOCK_PLAYERSTART,d0
+    bne.s       .next_col
 
-    ; Found Millie start — write tile coords to Millie struct
-    lea         Millie(a5),a1
-    move.w      d1,Player_X(a1)
-    move.w      d2,Player_Y(a1)
-    bra         .next_col
-
-.check_molly
-    cmp.b       #BLOCK_MOLLYSTART,d0
-    bne         .next_col
-
-    ; Found Molly start — write tile coords to Molly struct
-    lea         Molly(a5),a1
+    ; Found Player start — write tile coords to Player struct
+    lea         Player(a5),a1
     move.w      d1,Player_X(a1)
     move.w      d2,Player_Y(a1)
 
@@ -491,7 +464,7 @@ WallPaperLoadBase:
 ; to the corner opposite the active player's start tile and StarTargetX/Y to
 ; that player's tile, then delegates common animation init to StarAnimBegin:
 ;
-;   - Reads the active player's start tile from PlayerPtrs[0] (Player_X/Y).
+;   - Reads the active player's start tile from Player (Player_X/Y).
 ;   - Determines the opposite corner:
 ;       Player left  (X < 7)  → star starts from right edge (X = 13)
 ;       Player right (X >= 7) → star starts from left  edge (X =  0)
@@ -510,22 +483,47 @@ LevelIntroSetup:
     ; Ensure camera viewport is positioned for player start (immediate snap)
     bsr         TilemapSnapCamera
 
-    ; Set up active player hardware sprite
-    move.l      PlayerPtrs(a5),a4
+    ; Set up active player BOB
+    lea         Player(a5),a4
+
+    ; Check if start position is on a ladder
+    move.w      Player_Y(a4),d1
+    mulu        #WALL_PAPER_WIDTH,d1
+    add.w       Player_X(a4),d1
+    lea         GameMap(a5),a0
+    move.b      (a0,d1.w),d1
+    cmp.b       #BLOCK_LADDER,d1
+    beq.s       .lis_is_ladder
+    cmp.b       #BLOCK_PLAYERLADDER,d1
+    beq.s       .lis_is_ladder
+    cmp.b       Player_LadderId(a4),d1
+    bne.s       .lis_check_ladder_state
+.lis_is_ladder:
+    move.w      #1,Player_OnLadder(a4)
+
+.lis_check_ladder_state:
     moveq       #0,d0
     tst.w       Player_OnLadder(a4)
     bne         .lis_ladder
     tst.w       Player_Facing(a4)
     bpl         .lis_show
-    move.w      #PLAYER_SPRITE_LEFT_OFFSET,d0
+    move.w      #PLAYER_LEFT_OFFSET,d0
     bra         .lis_show
 .lis_ladder
-    move.w      #PLAYER_SPRITE_LADDER_IDLE,d0
+    move.w      #PLAYER_LADDER_IDLE,d0
 .lis_show
-    bsr         ShowSprite
+    bsr         ShowPlayer
 
     ; Start gameplay immediately in IDLE state
     move.w      #ACTION_IDLE,ActionStatus(a5)
+    clr.w       SlowMode(a5)
+    clr.w       SlowModeHold(a5)
+    clr.w       PrevKeyS(a5)
+    clr.w       DebugOverlayActive(a5)
+    lea         Keys,a0
+    clr.b       KEY_S(a0)
+    clr.b       KEY_A(a0)
+    clr.b       KEY_D(a0)
 
     POPALL
     rts
@@ -735,20 +733,18 @@ DrawPlayersAndActors:
     rts
 
 ;==============================================================================
-; DrawInitialPlayers  -  Set up the active player hardware sprite at level start
+; DrawInitialPlayers  -  Set up the active player BOB frame at level start
 ;
 ; Called from DrawMap after actors are drawn, immediately before LevelIntroSetup.
-; Only the active player (Status=1) is positioned here via ShowSprite; LevelIntroSetup
-; hides hardware sprites for the duration of the star animation.  Frozen players
-; are not drawn here - they appear only when the star animation completes.
+; Positions the active player (Status=1) via ShowPlayer.
 ;==============================================================================
 
 DrawInitialPlayers:
-    move.l      PlayerPtrs(a5),a4
+    lea         Player(a5),a4
     cmp.w       #1,Player_Status(a4)
     bne         .init_done
     moveq       #0,d0
-    bsr         ShowSprite
+    bsr         ShowPlayer
 
 .init_done
     rts

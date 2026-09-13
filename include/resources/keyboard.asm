@@ -66,6 +66,7 @@ KeyboardInit:
     move.b     #CIAICRF_SETCLR|CIAICRF_SP,(ciaicr+$bfe001)
 
     tst.b      (ciaicr+$bfe001)       ; dummy read to acknowledge/clear any pending interrupt
+    tst.b      (ciasdr+$bfe001)       ; dummy read to clear serial data register
 
     ; Set CIA-A serial port to INPUT mode (receive keyboard data).
     ; CIACRAF_SPMODE = bit 6 of CIACRA.  Clear it for input.

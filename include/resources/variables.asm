@@ -69,18 +69,10 @@ MoveId:               rs.w    1   ; incremented each time a player makes a move
 ;------------------------------------------------------------------------------
 ; Player records
 ;
-; PlayerPtrs - two longword pointers:
-;   PlayerPtrs+0 : pointer to the ACTIVE  player (a4 is loaded from here)
-;   PlayerPtrs+4 : pointer to the FROZEN  player
-;   Swapping these two pointers is how PlayerSwitch changes the active character.
-;
-; Millie / Molly - the actual Player structure data (Player_Sizeof bytes each).
-;   Millie uses sprite frames starting at offset 48 in PlayerHWSprites.
-;   Molly  uses sprite frames starting at offset  0 in PlayerHWSprites.
+; Player - the actual Player structure data (Player_Sizeof bytes).
 ;------------------------------------------------------------------------------
-PlayerPtrs:           rs.l    2   ; [0]=active player ptr, [1]=frozen player ptr
-Millie:               rs.b    Player_Sizeof   ; Millie's player structure
-Molly:                rs.b    Player_Sizeof   ; Molly's  player structure
+Player:               rs.b    Player_Sizeof   ; Player structure data
+Millie                = Player    ; backward compatibility alias
 
 ;------------------------------------------------------------------------------
 ; Game state machine
@@ -413,7 +405,8 @@ TilemapCameraY:       rs.w    1               ; camera vertical position in pixe
 TilemapScreenOffset:  rs.w    1               ; visible tile row start offset (0..29)
 TilemapCurrentOffset: rs.w    1               ; currently drawn tile row offset
 TilemapFineY:         rs.w    1               ; fine vertical pixel scroll (0..15)
-PlayerSpriteFrame:    rs.w    1               ; current active hardware sprite frame offset (0..47)
+PlayerFrame:       rs.w    1               ; current active player BOB animation frame offset (0..47)
+PlayerSpriteFrame     = PlayerFrame        ; alias for backward compatibility
 LevelMinCameraY:      rs.w    1               ; minimum camera scroll Y in pixels (e.g. 0)
 LevelMaxCameraY:      rs.w    1               ; maximum camera scroll Y in pixels (e.g. 464)
 LevelCamMarginTop:    rs.w    1               ; camera upper deadzone margin (e.g. 16)
@@ -423,6 +416,9 @@ ActiveEnemies:        rs.b    ei_SIZEOF*MAX_ACTIVE_ENEMIES ; runtime enemy insta
 
 ; Debug on-screen text overlay state
 DebugOverlayActive:   rs.w    1               ; 0=off, 1=on (toggled by 'D' key or F5)
+SlowMode:             rs.w    1               ; 0=normal speed, 1=slow mode (step on 'A' key, toggled by 'S')
+SlowModeHold:         rs.w    1               ; frame counter for 'A' key hold detection
+PrevKeyS:             rs.w    1               ; previous frame 'S' key state (edge detector)
 PrevDebugCameraY:     rs.w    1               ; camera Y where previous debug text was drawn
 PrevDebugDrawn:       rs.w    1               ; 1 if debug text was drawn last frame (needs erase)
 DebugLineBuf:         rs.b    64              ; text formatting buffer

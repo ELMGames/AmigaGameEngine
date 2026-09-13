@@ -9,8 +9,7 @@
 ;   - Enemy falling  (BLOCK_ENEMYFALL  = gravity-affected enemy)
 ;   - Enemy floating (BLOCK_ENEMYFLOAT = gravity-immune enemy)
 ;   - Pushable block (BLOCK_PUSH       = can be slid by the player)
-;   - Dirt block     (BLOCK_DIRT       = player can walk through / destroy)
-;   - Millie / Molly (player characters - special initialisation path)
+;   - Player         (single player character - special initialisation path)
 ;
 ; Actor data lives in the flat Actors[] array (Actor_Sizeof bytes per slot).
 ; The ActorList[] array holds pointers into Actors[], sorted by Y position
@@ -125,8 +124,7 @@ InitGameObjects:
 ;   BLOCK_DIRT       (4) -> InitDirt
 ;   BLOCK_SOLID      (5) -> InitDummy
 ;   BLOCK_ENEMYFLOAT (6) -> InitEnemyFloat
-;   BLOCK_MILLIESTART(7) -> InitMillie
-;   BLOCK_MOLLYSTART (8) -> InitMolly
+;   BLOCK_PLAYERSTART(7) -> InitPlayer
 ;   BLOCK_COCOON    (11) -> InitCocoon
 ;   BLOCK_ACID      (12) -> InitDummy  (static map hazard, no actor)
 ;==============================================================================
@@ -142,10 +140,10 @@ InitObject:
     dc.w        InitDirt-.i                ; BLOCK_DIRT        = 4
     dc.w        InitDummy-.i               ; BLOCK_SOLID       = 5
     dc.w        InitEnemyFloat-.i          ; BLOCK_ENEMYFLOAT  = 6
-    dc.w        InitMillie-.i              ; BLOCK_MILLIESTART = 7
-    dc.w        InitMolly-.i               ; BLOCK_MOLLYSTART  = 8
-    dc.w        InitDummy-.i               ; BLOCK_MILLIELADDER= 9  (never in level data)
-    dc.w        InitDummy-.i               ; BLOCK_MOLLYLADDER = 10 (never in level data)
+    dc.w        InitPlayer-.i              ; BLOCK_PLAYERSTART = 7
+    dc.w        InitDummy-.i               ; formerly BLOCK_MOLLYSTART = 8
+    dc.w        InitDummy-.i               ; BLOCK_PLAYERLADDER= 9  (never in level data)
+    dc.w        InitDummy-.i               ; formerly BLOCK_MOLLYLADDER = 10 (never in level data)
     dc.w        InitCocoon-.i              ; BLOCK_COCOON      = 11
     dc.w        InitDummy-.i               ; BLOCK_ACID        = 12 (static hazard)
 
@@ -271,92 +269,53 @@ InitCocoon:
 
 
 ;==============================================================================
-; InitMillie  -  Initialise the Millie player character
+; InitPlayer  -  Initialise the player character
 ;
-; Sets Millie's sprite base offset to 48 (Millie's frames come after Molly's
-; in the PlayerHWSprites data), configures her map block IDs, then calls InitPlayer.
-;
-; Player_SpriteOffset = 48 means all sprite frame lookups for Millie are
-; offset by 48 frames relative to the start of PlayerHWSprites.
-; Player_LadderFreezeId = 97 is the frame index used when Millie is frozen
-; on a ladder (the idle-on-ladder graphic for Millie).
-;==============================================================================
-
-InitMillie:
-    lea         Millie(a5),a4              ; a4 -> Millie player structure
-    move.w      #48,Player_SpriteOffset(a4)        ; Millie's sprite base = frame 48
-    move.w      #31,Player_FrozenSpriteBase(a4)       ; Millie's frozen sprite (right-facing)
-    move.w      #34,Player_LadderFreezeId(a4)      ; ladder freeze frame index
-    move.b      #BLOCK_MILLIESTART,Player_BlockId(a4)    ; map cell type for Millie's presence
-    move.b      #BLOCK_MILLIELADDER,Player_LadderId(a4)  ; map cell type when on ladder
-    bsr         InitPlayer
-    rts
-
-
-;==============================================================================
-; InitMolly  -  Initialise the Molly player character
-;
-; Sets Molly's sprite base offset to 0 (Molly's frames are first in PlayerHWSprites),
-; configures her map block IDs, then calls InitPlayer.
-;==============================================================================
-
-InitMolly:
-    lea         Molly(a5),a4               ; a4 -> Molly player structure
-    move.w      #0,Player_SpriteOffset(a4)         ; Molly's sprite base = frame 0
-    move.w      #29,Player_FrozenSpriteBase(a4)       ; Molly's frozen sprite (right-facing)
-    move.w      #33,Player_LadderFreezeId(a4)      ; ladder freeze frame index
-    move.b      #BLOCK_MOLLYSTART,Player_BlockId(a4)    ; map cell type for Molly's presence
-    move.b      #BLOCK_MOLLYLADDER,Player_LadderId(a4)  ; map cell type when on ladder
-    bsr         InitPlayer
-    rts
-
-
-;==============================================================================
-; InitPlayer  -  Common player initialisation (called by InitMillie / InitMolly)
-;
-; Increments the PlayerCount, sets the player's starting tile position from
-; d1 (X) and d2 (Y), marks the player as active (Status=1), and sets the
-; initial facing direction to right (+1).
-;
-; Sub-tile pixel offsets (XDec/YDec) are cleared to 0 (aligned on a tile).
-;
-; Note: PlayerPtrs are NOT set here.  LevelInit wires Millie->slot 0 and
-; Molly->slot 1 before InitGameObjects runs, then normalizes the pointers
-; afterward based on which players are actually present in the level:
-; slot 0 always ends up with the active player (Status=1).
+; Sets Player's BOB base offset (Price base 48, or Cole base 0 if SelectedPlayer),
+; configures map block IDs, marks the player as active (Status=1), and sets the
+; starting tile position and facing direction.
 ;
 ; On entry:
-;   a4 = player structure pointer (set by InitMillie / InitMolly)
 ;   d1 = starting tile X
 ;   d2 = starting tile Y
+;   a5 = Variables base pointer
 ;==============================================================================
 
 InitPlayer:
-    addq.w      #1,PlayerCount(a5)         ; count this player as initialised
-    clr.w       Player_OnLadder(a4)        ; start on ground (not on ladder)
-    move.w      d1,Player_X(a4)            ; set starting tile column
-    move.w      d2,Player_Y(a4)            ; set starting tile row
-    move.w      #1,Player_DirectionX(a4)   ; initial facing: right
-    clr.w       Player_XDec(a4)            ; no sub-tile X offset
-    clr.w       Player_YDec(a4)            ; no sub-tile Y offset
+    lea         Player(a5),a4              ; a4 -> Player structure
+    move.w      #48,Player_BobOffset(a4)        ; default: Dr. Price (frame 48)
+    move.w      #31,Player_FrozenBobBase(a4)    ; frozen BOB pose
+    move.w      #34,Player_LadderFreezeId(a4)   ; ladder freeze frame index
+    tst.w       SelectedPlayer(a5)
+    beq.s       .init_ids
+    clr.w       Player_BobOffset(a4)            ; Sgt. Cole (frame 0)
+    move.w      #29,Player_FrozenBobBase(a4)
+    move.w      #33,Player_LadderFreezeId(a4)
+
+.init_ids:
+    move.b      #BLOCK_PLAYERSTART,Player_BlockId(a4)    ; map cell type for Player's presence
+    move.b      #BLOCK_PLAYERLADDER,Player_LadderId(a4)  ; map cell type when on ladder
+    move.w      #1,PlayerCount(a5)              ; count player as initialised
+    clr.w       Player_OnLadder(a4)             ; start on ground (not on ladder)
+    move.w      d1,Player_X(a4)                 ; set starting tile column
+    move.w      d2,Player_Y(a4)                 ; set starting tile row
+    move.w      #1,Player_DirectionX(a4)        ; initial facing: right
+    clr.w       Player_XDec(a4)                 ; no sub-tile X offset
+    clr.w       Player_YDec(a4)                 ; no sub-tile Y offset
     moveq       #0,d0
     move.w      d1,d0
-    mulu        #TILE_WIDTH,d0
-    move.w      d0,Player_PixelX(a4)       ; seed pixel cache: X * 24
+    lsl.w       #4,d0
+    move.w      d0,Player_PixelX(a4)            ; seed pixel cache: X * 16
     moveq       #0,d0
     move.w      d2,d0
-    mulu        #TILE_WIDTH,d0
-    move.w      d0,Player_PixelY(a4)       ; seed pixel cache: Y * 24
-
-    ; Set player status: first player is active (1), second is frozen (2)
-    cmp.w       #1,PlayerCount(a5)         ; is this the first player?
-    beq         .first_player
-    move.w      #2,Player_Status(a4)       ; status = 2 (frozen, waiting for switch)
-    bra         .init_done
-.first_player
-    move.w      #1,Player_Status(a4)       ; status = 1 (active, controlled by player)
-.init_done
+    lsl.w       #4,d0
+    move.w      d0,Player_PixelY(a4)            ; seed pixel cache: Y * 16
+    move.w      #1,Player_Status(a4)            ; status = 1 (active)
     rts
+
+; Backward compatibility aliases:
+InitMillie = InitPlayer
+InitMolly  = InitDummy
 
 
 ;==============================================================================
