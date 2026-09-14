@@ -987,6 +987,11 @@ FADE_MAX_STEPS       = 15   ; OCS palette has 4-bit channels (0..$F)
 FADE_OUT             = 0    ; direction flag: fade toward black
 FADE_IN              = 1    ; direction flag: fade toward target palette
 
-
-
-
+;------------------------------------------------------------------------------
+; Player Survival & Oxygen Subsystem constants
+;------------------------------------------------------------------------------
+DEFAULT_LIVES        = 3    ; starting player lives
+OXYGEN_MAX           = 400  ; 8.0 seconds of breath at 50 Hz PAL (400 frames)
+OXYGEN_REFILL_RATE   = 4    ; breath replenished per frame when surfaced (+4 -> ~2.0s full)
+OXYGEN_CRITICAL      = 100  ; breath critical threshold (last 2.0s / 25%)
+PLAYER_HEAD_Y_OFFSET = 10   ; offset from player top scanline to mouth line (accounts for hair)

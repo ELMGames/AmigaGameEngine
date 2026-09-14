@@ -432,6 +432,23 @@ WaterRisePeriod:      rs.w    1               ; scaled PAL/NTSC 10-second period
 LiveWaterMap:         rs.b    8+TILEMAP_MAP_TILES*2 ; runtime editable copy of water binary map
                       even
 
+; Player survival & oxygen subsystem state
+PlayerLives:          rs.w    1               ; player remaining lives (starts at 3)
+PlayerOxygen:         rs.w    1               ; oxygen breath counter (0..OXYGEN_MAX)
+PlayerSubmerged:      rs.w    1               ; 1 if head is underwater, 0 if surfaced
+PlayerSafeX:          rs.w    1               ; tile X of last dry ground
+PlayerSafeY:          rs.w    1               ; tile Y of last dry ground
+PlayerSafePixelX:     rs.w    1               ; pixel X of last dry ground
+PlayerSafePixelY:     rs.w    1               ; pixel Y of last dry ground
+PlayerDrowning:       rs.w    1               ; 1 if drowning sequence is active
+PlayerDrownTimer:     rs.w    1               ; timer for drowning animation/respawn
+                      even
 
+; Air bubble sprite state (SPR6)
+BubbleActive:         rs.w    1               ; 0 = inactive, 1 = rising
+BubbleWorldX:         rs.w    1               ; world pixel X of bubble
+BubbleWorldY:         rs.w    1               ; world pixel Y of bubble
+BubbleTimer:          rs.w    1               ; spawn countdown timer
+                      even
 
 Variables_sizeof:     rs.w    0           ; total size of the Variables block in bytes

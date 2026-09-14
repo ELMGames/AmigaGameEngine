@@ -1002,15 +1002,6 @@ TilemapUpdateWater:
     move.w      d4,(a1)+
     dbra        d3,.fill_deep
 
-    ; Update player priority if water has reached the player's row
-    lea         Player(a5),a0
-    tst.w       Player_Status(a0)
-    beq.s       .pop_exit
-    cmp.w       Player_Y(a0),d1
-    bgt.s       .pop_exit               ; water row d1 > player row (still below)
-    move.w      #$0000,cpBPLCON2+2
-    move.w      #$0000,BPLCON2(a6)
-
 .pop_exit:
     POPM        d0-d7/a0-a2
     rts
@@ -2215,6 +2206,27 @@ TilemapDrawDebugOverlay:
     move.w      Player_YDec(a4),d0
     bsr         DebugWriteSigned2
 
+    ; Append OXY and Lives telemetry
+    lea         .str_oxy(pc),a0
+    bsr         DebugWriteString
+
+    move.w      PlayerOxygen(a5),d0
+    bsr         DebugWriteDec3
+
+    tst.w       PlayerSubmerged(a5)
+    beq.s       .not_sub
+    move.b      #'*',(a1)+              ; '*' indicator if head is underwater
+    bra.s       .sub_done
+.not_sub:
+    move.b      #' ',(a1)+
+.sub_done:
+
+    lea         .str_liv(pc),a0
+    bsr         DebugWriteString
+
+    move.w      PlayerLives(a5),d0
+    bsr         DebugWriteDec1
+
     clr.b       (a1)                        ; null terminate
 
     ; Draw Line 2 at CameraY + 11, X column 1
@@ -2286,6 +2298,8 @@ TilemapDrawDebugOverlay:
 .str_mode:      dc.b    " MODE:",0
 .str_mode_run:  dc.b    "RUN ",0
 .str_mode_slow: dc.b    "SLOW",0
+.str_oxy:       dc.b    " OXY:",0
+.str_liv:       dc.b    " L:",0
     even
 
 

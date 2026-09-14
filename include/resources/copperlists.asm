@@ -77,7 +77,7 @@ cpGameDIW:
     dc.w    BPLCON0,$4200           ; 4 bitplanes, colour enable, lo-res
     dc.w    BPLCON1,$0000           ; no horizontal bitplane scroll
 cpBPLCON2:
-    dc.w    BPLCON2,$0024           ; sprite/playfield priority control (patched live by player water logic)
+    dc.w    BPLCON2,$0024           ; sprite/playfield priority: all sprites (0-7) in front of playfield/BOBs
     dc.w    BPL1MOD,TILEMAP_SCREEN_MOD ; odd-plane modulo  (skip 3 planes between rows = 120 bytes)
     dc.w    BPL2MOD,TILEMAP_SCREEN_MOD ; even-plane modulo (same value for non-interlaced)
 

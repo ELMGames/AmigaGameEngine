@@ -1529,6 +1529,9 @@ ActionMove:
 ;==============================================================================
 
 ActionIdle:
+    tst.w       PlayerDrowning(a5)
+    bne.s       .exit                   ; controls locked while drowning!
+
     ; F9 undo: check if key is held and cooldown has expired
     lea         Keys,a0
     tst.b       KEY_F9(a0)              ; F9 held down?
@@ -2921,3 +2924,277 @@ PlayerGetNextBlock:
     moveq       #BLOCK_SOLID,d2            ; out of bounds = solid block
     moveq       #0,d0                      ; safe offset
     rts
+
+
+;==============================================================================
+; PlayerUpdateOxygen  -  Update player submersion, oxygen level, and safe ground
+;
+; Called every active frame from GameRun (gamestatus.asm) right after
+; TilemapUpdateWater.
+;
+; Submersion Rule:
+;   Player World Y top = (Player_Y * 16) + Player_YDec - 8
+;   Player Head Y      = World Y top + PLAYER_HEAD_Y_OFFSET (10)
+;   If WaterPixelY >= 0 and Head Y >= WaterPixelY:
+;     Player is submerged:
+;       - Set PlayerSubmerged = 1
+;       - Drain PlayerOxygen (-1 per frame)
+;       - If PlayerOxygen <= 0: mark PlayerDrowning = 1
+;   Else:
+;     Player is surfaced:
+;       - Set PlayerSubmerged = 0
+;       - Clear PlayerDrowning = 0
+;       - Replenish PlayerOxygen (+OXYGEN_REFILL_RATE per frame up to OXYGEN_MAX)
+;
+; Safe Platform Rule:
+;   If Player is standing idle (ACTION_IDLE), tile-aligned, not on a ladder,
+;   not falling, and feet are above water (Feet Y < WaterPixelY):
+;     Update PlayerSafeX, PlayerSafeY, PlayerSafePixelX, PlayerSafePixelY.
+;
+; Preserves:
+;   a5, a6
+; Destroys:
+;   d0-d3, a4
+;==============================================================================
+
+PlayerUpdateOxygen:
+    lea         Player(a5),a4
+    tst.w       Player_Status(a4)
+    beq         .exit                   ; player not active
+
+    ; -------------------------------------------------------------------------
+    ; 1. Submersion Detection
+    ; -------------------------------------------------------------------------
+    ; Player World Y top = (Player_Y * 16) + Player_YDec - 8
+    move.w      Player_Y(a4),d0
+    lsl.w       #4,d0
+    add.w       Player_YDec(a4),d0
+    subq.w      #8,d0                   ; d0 = World Y top of player (24px BOB)
+
+    ; Head scanline = World Y top + PLAYER_HEAD_Y_OFFSET (10)
+    move.w      d0,d1
+    add.w       #PLAYER_HEAD_Y_OFFSET,d1 ; d1 = Player Head/Mouth World Y
+
+    move.w      WaterPixelY(a5),d2      ; d2 = WaterPixelY (0..671, or < 0 if no water)
+    bmi.s       .dry                    ; if no water (< 0), completely dry
+
+    cmp.w       d2,d1                   ; Head Y >= WaterPixelY?
+    blt.s       .dry                    ; Head Y < WaterPixelY -> Head is above water!
+
+    ; --- Head is Underwater: Submerged ---
+    move.w      #1,PlayerSubmerged(a5)
+
+    ; Drain oxygen (-1 per frame)
+    move.w      PlayerOxygen(a5),d3
+    ble.s       .drown_trigger          ; already 0 or negative
+    subq.w      #1,d3
+    move.w      d3,PlayerOxygen(a5)
+    bgt.s       .check_safe_ground      ; still has air
+
+.drown_trigger:
+    clr.w       PlayerOxygen(a5)        ; clamp at 0
+    tst.w       PlayerDrowning(a5)
+    bne.s       .drowning_active
+    move.w      #1,PlayerDrowning(a5)   ; mark drowning active
+    move.w      #30,PlayerDrownTimer(a5) ; ~0.6s timer before respawn
+    bra.s       .check_safe_ground
+
+.drowning_active:
+    subq.w      #1,PlayerDrownTimer(a5)
+    bgt.s       .check_safe_ground      ; still flailing / timing down
+    bsr         PlayerRespawn           ; timer expired -> respawn at safe platform!
+    rts
+
+.dry:
+    ; --- Head is Above Water: Surfaced ---
+    clr.w       PlayerSubmerged(a5)
+    clr.w       PlayerDrowning(a5)
+
+    ; Replenish oxygen (+OXYGEN_REFILL_RATE per frame until OXYGEN_MAX)
+    move.w      PlayerOxygen(a5),d3
+    cmp.w       #OXYGEN_MAX,d3
+    bge.s       .oxy_full
+    addq.w      #OXYGEN_REFILL_RATE,d3
+    cmp.w       #OXYGEN_MAX,d3
+    ble.s       .save_oxy
+    move.w      #OXYGEN_MAX,d3
+.save_oxy:
+    move.w      d3,PlayerOxygen(a5)
+.oxy_full:
+
+    ; -------------------------------------------------------------------------
+    ; 2. Track Safe Dry Platform
+    ; -------------------------------------------------------------------------
+.check_safe_ground:
+    cmp.w       #ACTION_IDLE,ActionStatus(a5)
+    bne.s       .exit
+    tst.w       Player_OnLadder(a4)
+    bne.s       .exit
+    tst.w       Player_Fallen(a4)
+    bne.s       .exit
+    tst.w       Player_XDec(a4)
+    bne.s       .exit
+    tst.w       Player_YDec(a4)
+    bne.s       .exit
+
+    ; Player feet Y = (Player_Y * 16) + 15
+    move.w      Player_Y(a4),d1
+    lsl.w       #4,d1
+    add.w       #15,d1                  ; d1 = feet scanline Y
+
+    move.w      WaterPixelY(a5),d2
+    bmi.s       .save_safe              ; no water -> safe!
+    cmp.w       d2,d1                   ; feet Y >= WaterPixelY?
+    bge.s       .exit                   ; feet in water -> not a dry platform!
+
+.save_safe:
+    move.w      Player_X(a4),PlayerSafeX(a5)
+    move.w      Player_Y(a4),PlayerSafeY(a5)
+    move.w      Player_PixelX(a4),PlayerSafePixelX(a5)
+    move.w      Player_PixelY(a4),PlayerSafePixelY(a5)
+
+.exit:
+    rts
+
+
+;==============================================================================
+; PlayerRespawn  -  Handle loss of life and reposition to safe dry platform
+;
+; In:  a4 = Player struct pointer
+;      a5 = Variables base
+;==============================================================================
+
+PlayerRespawn:
+    subq.w      #1,PlayerLives(a5)
+    bgt.s       .has_lives
+
+    ; --- Game Over: reset lives and restart level ---
+    move.w      #DEFAULT_LIVES,PlayerLives(a5)
+    move.w      #LEVEL_INIT,GameStatus(a5)
+    rts
+
+.has_lives:
+    ; Check if stored safe platform is still dry
+    move.w      PlayerSafeY(a5),d0
+    lsl.w       #4,d0
+    add.w       #15,d0                  ; d0 = feet Y of safe platform
+    move.w      WaterPixelY(a5),d1
+    bmi.s       .safe_ok                ; no water -> safe
+    cmp.w       d1,d0
+    blt.s       .safe_ok                ; feet Y < WaterPixelY -> still dry!
+
+    ; Safe platform was overtaken by water -> search upward for a dry platform
+    bsr         FindDryPlatformAboveWater
+
+.safe_ok:
+    ; Relocate player to safe platform
+    move.w      PlayerSafeX(a5),Player_X(a4)
+    move.w      PlayerSafeY(a5),Player_Y(a4)
+    move.w      PlayerSafePixelX(a5),Player_PixelX(a4)
+    move.w      PlayerSafePixelY(a5),Player_PixelY(a4)
+    clr.w       Player_XDec(a4)
+    clr.w       Player_YDec(a4)
+    clr.w       Player_OnLadder(a4)
+    clr.w       Player_Fallen(a4)
+    clr.w       Player_ActionCount(a4)
+    clr.w       Player_DirectionX(a4)
+    clr.w       Player_DirectionY(a4)
+    move.w      #ACTION_IDLE,ActionStatus(a5)
+    move.w      Player_BobOffset(a4),PlayerFrame(a5)
+    clr.w       Player_AnimFrame(a4)
+
+    ; Reset survival state
+    move.w      #OXYGEN_MAX,PlayerOxygen(a5)
+    clr.w       PlayerSubmerged(a5)
+    clr.w       PlayerDrowning(a5)
+    clr.w       PlayerDrownTimer(a5)
+
+    ; Center camera on respawned player
+    move.w      Player_Y(a4),d1
+    lsl.w       #4,d1
+    sub.w       #100,d1                 ; center vertically in 200px viewport
+    cmp.w       LevelMinCameraY(a5),d1
+    bge.s       .cam_min
+    move.w      LevelMinCameraY(a5),d1
+.cam_min:
+    cmp.w       LevelMaxCameraY(a5),d1
+    ble.s       .cam_max
+    move.w      LevelMaxCameraY(a5),d1
+.cam_max:
+    bsr         TilemapApplyCameraY
+    rts
+
+
+;==============================================================================
+; FindDryPlatformAboveWater  -  Search GameMap upwards for a safe dry platform
+;
+; Scans GameMap from the row immediately above the water line upwards toward
+; row 1. When a BLOCK_SOLID or platform tile with air above it is found,
+; updates PlayerSafeX/Y/PixelX/PixelY.
+;==============================================================================
+
+FindDryPlatformAboveWater:
+    PUSHM       d0-d4/a0
+    move.w      WaterPixelY(a5),d0
+    ble.s       .fail                   ; water at top or inactive
+
+    ; Start searching from the row just above the water line:
+    ; Row = (WaterPixelY - 16) >> 4
+    sub.w       #16,d0
+    lsr.w       #4,d0                   ; d0 = candidate row
+    cmp.w       #TILEMAP_MAP_HEIGHT-1,d0
+    ble.s       .row_clamp
+    move.w      #TILEMAP_MAP_HEIGHT-2,d0
+.row_clamp:
+
+.row_search_loop:
+    tst.w       d0
+    ble.s       .fail                   ; reached top of map with no dry platforms
+
+    ; Search columns 0..TILEMAP_VIEW_COLS-1 in this row
+    moveq       #0,d1                   ; d1 = column index
+.col_search_loop:
+    cmp.w       #TILEMAP_VIEW_COLS,d1
+    bge.s       .next_row
+
+    ; Check if (col, row) is solid in GameMap
+    move.w      d0,d2
+    mulu.w      #WALL_PAPER_WIDTH,d2
+    add.w       d1,d2
+    lea         GameMap(a5),a0
+    cmp.b       #BLOCK_SOLID,(a0,d2.w)
+    bne.s       .next_col
+
+    ; Found a solid tile! Check if cell above (row-1) is empty/air
+    move.w      d0,d3
+    subq.w      #1,d3
+    mulu.w      #WALL_PAPER_WIDTH,d3
+    add.w       d1,d3
+    tst.b       (a0,d3.w)
+    bne.s       .next_col               ; cell above is blocked
+
+    ; Found dry platform! Update PlayerSafe coordinates
+    move.w      d1,PlayerSafeX(a5)
+    move.w      d0,d4
+    subq.w      #1,d4
+    move.w      d4,PlayerSafeY(a5)
+    lsl.w       #4,d1
+    move.w      d1,PlayerSafePixelX(a5)
+    lsl.w       #4,d4
+    move.w      d4,PlayerSafePixelY(a5)
+    POPM        d0-d4/a0
+    rts
+
+.next_col:
+    addq.w      #1,d1
+    bra.s       .col_search_loop
+
+.next_row:
+    subq.w      #1,d0
+    bra.s       .row_search_loop
+
+.fail:
+    POPM        d0-d4/a0
+    rts
+
+

@@ -73,6 +73,16 @@ LevelInit:
     clr.w         Player_Fallen(a0)      ; Clear falling flag
     clr.w         Player_ActionFrame(a0) ; Clear action frame counter
 
+    ; Reset oxygen and submersion state
+    move.w        #OXYGEN_MAX,PlayerOxygen(a5)
+    clr.w         PlayerSubmerged(a5)
+    clr.w         PlayerDrowning(a5)
+    clr.w         PlayerDrownTimer(a5)
+    tst.w         PlayerLives(a5)
+    bne.s         .lives_ok
+    move.w        #DEFAULT_LIVES,PlayerLives(a5)
+.lives_ok:
+
     ; bsr           SetLevelAssets         ; legacy tile set decompression removed
     ; bsr           GenTileMask            ; legacy tile mask generation removed
 
@@ -149,6 +159,12 @@ LevelInit:
     move.w        d0,Player_PixelY(a0)       ; cache Y * 16
     clr.w         Player_YDec(a0)
     move.w        LevelDef_P1Facing(a2),Player_Facing(a0)
+
+    ; Seed initial safe dry platform coordinates from spawn point
+    move.w        Player_X(a0),PlayerSafeX(a5)
+    move.w        Player_Y(a0),PlayerSafeY(a5)
+    move.w        Player_PixelX(a0),PlayerSafePixelX(a5)
+    move.w        Player_PixelY(a0),PlayerSafePixelY(a5)
 
     ; Apply BOB offset based on SelectedPlayer (0 = Price/frame 48, 1 = Cole/frame 0)
     move.w        #48,Player_BobOffset(a0)    ; default: Dr. Price

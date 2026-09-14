@@ -147,6 +147,7 @@ GameCopperInit:
     addq.l     #4,a1
     dbra       d7,.cloop2
 
+    bsr        InitHUDSprites          ; initialize hardware sprite HUD & palettes
     rts
 
 ;==============================================================================
@@ -305,6 +306,8 @@ GameRun:
     bsr         TilemapUpdateCamera  ; dynamically scroll camera if player moves up/down
     bsr         TilemapEraseDebugOverlay ; erase old debug text if camera moved or overlay disabled
     bsr         TilemapUpdateWater   ; advance rising water layer every 10 seconds
+    bsr         PlayerUpdateOxygen   ; update submersion, oxygen depletion/refill & safe ground
+    bsr         UpdateHUDSprites     ; update Lives, Oxygen, and Bubble hardware sprites
 
     ; Draw player BOB on top of background platforms/ladders (with foreground & water depth)
     lea         Player(a5),a4        ; a4 -> player structure

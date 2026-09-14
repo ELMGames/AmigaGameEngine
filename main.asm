@@ -157,6 +157,7 @@ Init:
     clr.w      SlowModeHold(a5)
     clr.w      PrevKeyS(a5)
     clr.w      DebugOverlayActive(a5)
+    move.w     #DEFAULT_LIVES,PlayerLives(a5)
     lea        Keys,a0
     clr.b      KEY_S(a0)
     clr.b      KEY_A(a0)
@@ -405,6 +406,7 @@ VBlankTick:
     include    "actors.asm"
     include    "zx0_faster.asm"
     include    "spritetools.asm"
+    include    "hud_sprites.asm"
     include    "player.asm"
     include    "undo.asm"
     include    "vhs_rewind.asm"
