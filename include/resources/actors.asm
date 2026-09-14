@@ -314,8 +314,8 @@ InitPlayer:
     rts
 
 ; Backward compatibility aliases:
-InitMillie = InitPlayer
-InitMolly  = InitDummy
+;InitMillie = InitPlayer
+;InitMolly  = InitDummy
 
 
 ;==============================================================================

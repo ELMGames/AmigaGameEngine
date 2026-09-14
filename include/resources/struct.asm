@@ -185,11 +185,11 @@ Snap_Actors:              rs.b    MAX_ACTORS*SNAP_ACTOR_WORDS*2  ; 88 x 14 bytes
 Snap_sizeof:              rs.w    0   ; total snapshot size in bytes
 
 ; Backward compatibility aliases:
-Snap_MillieX              = Snap_PlayerX
-Snap_MillieY              = Snap_PlayerY
-Snap_MillieStatus         = Snap_PlayerStatus
-Snap_MillieFacing         = Snap_PlayerFacing
-Snap_MillieOnLadder       = Snap_PlayerOnLadder
+;Snap_MillieX              = Snap_PlayerX
+;Snap_MillieY              = Snap_PlayerY
+;Snap_MillieStatus         = Snap_PlayerStatus
+;Snap_MillieFacing         = Snap_PlayerFacing
+;Snap_MillieOnLadder       = Snap_PlayerOnLadder
 
 
                           RSRESET

@@ -345,8 +345,8 @@ BLOCK_PLAYERSTART   = 7    ; Player start position marker in level data
 BLOCK_PLAYERLADDER  = 9    ; map cell occupied by Player while on a ladder
 
 ; Backward compatibility aliases:
-BLOCK_MILLIESTART   = BLOCK_PLAYERSTART
-BLOCK_MILLIELADDER  = BLOCK_PLAYERLADDER
+;BLOCK_MILLIESTART   = BLOCK_PLAYERSTART
+;BLOCK_MILLIELADDER  = BLOCK_PLAYERLADDER
 
 ; --- Alien Containment additions (Phase D signature mechanics) ---
 BLOCK_COCOON        = 11   ; pushable alien cocoon - hatches into BLOCK_ENEMYFALL

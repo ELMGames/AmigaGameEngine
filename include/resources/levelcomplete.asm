@@ -56,7 +56,7 @@ LC_OFF_TITLE1  =  4*SCREEN_STRIDE+12   ; CONGRATULATIONS! (16 chars on 40 cols -
 LC_OFF_TITLE2  = 20*SCREEN_STRIDE+11   ; LEVEL NNN CLEARED! (18 chars on 40 cols -> X=11)
 LC_OFF_PORTRAIT= 28*SCREEN_STRIDE      ; portrait row base (top-left)
 LC_OFF_PLAYER  = LC_OFF_PORTRAIT+0     ; Player portrait at byte X=0 (0..63 px)
-LC_OFF_MILLIE  = LC_OFF_PLAYER         ; backward compatibility alias
+;LC_OFF_MILLIE  = LC_OFF_PLAYER         ; backward compatibility alias
 LC_OFF_BAN1    =108*SCREEN_STRIDE+8    ; NEXT LEVEL ACCESS CODE: (23 chars -> X=8)
 LC_OFF_PASS    =124*SCREEN_STRIDE+17   ; 6-char access code (centred on 40 cols -> X=17)
 LC_OFF_MENU0   =168*SCREEN_STRIDE+11   ; menu item 0 (17 chars -> X=11)

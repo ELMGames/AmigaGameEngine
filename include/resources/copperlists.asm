@@ -545,8 +545,8 @@ FontData:
 
 ; Level-complete portrait images:
 PlayerPic:
-MilliePic:
-MollyPic:
+;MilliePic:
+;MollyPic:
 
 ;==============================================================================
 ; cpTitle  -  Title screen copper list (states TITLE_SETUP / TITLE_RUN)

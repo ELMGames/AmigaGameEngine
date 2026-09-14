@@ -72,7 +72,7 @@ MoveId:               rs.w    1   ; incremented each time a player makes a move
 ; Player - the actual Player structure data (Player_Sizeof bytes).
 ;------------------------------------------------------------------------------
 Player:               rs.b    Player_Sizeof   ; Player structure data
-Millie                = Player    ; backward compatibility alias
+;Millie                = Player    ; backward compatibility alias
 
 ;------------------------------------------------------------------------------
 ; Game state machine
