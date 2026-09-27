@@ -463,11 +463,13 @@ VHS_DoRoll:
     subq.w   #1,VHS_RollTimer
     bne.b    .rd
 
-    ; Timer expired: apply a one-frame roll offset to all five bitplane pointers
+    ; Timer expired: apply a one-frame roll offset to all bitplane pointers
     move.w   #VHS_ROLL_INTERVAL,VHS_RollTimer
     move.b   #1,VHS_RollActive
-    move.l   #DisplayScreen,d0
-    add.l    #VHS_ROLL_BYTES,d0    ; base + roll delta
+    move.w   TilemapCameraY(a5),d0
+    mulu.w   #TILEMAP_LINE_STRIDE,d0
+    add.l    #DisplayScreen,d0
+    add.l    #VHS_ROLL_BYTES,d0    ; base + camera offset + roll delta
     lea      cpPlanes,a0
     moveq    #SCREEN_DEPTH-1,d7
 .rloop:
@@ -483,13 +485,16 @@ VHS_DoRoll:
 ;------------------------------------------------------------------------------
 ; VHS_RestorePlanes
 ; Writes the canonical DisplayScreen-based addresses back into cpPlanes,
-; undoing any roll offset.  Called by VHS_DoRoll and VHS_StopEffect.
+; undoing any roll offset and preserving the active camera Y.
+; Called by VHS_DoRoll and VHS_StopEffect.
 ; Preserves all registers.
 ;------------------------------------------------------------------------------
 
 VHS_RestorePlanes:
     movem.l  d0/d7/a0,-(sp)
-    move.l   #DisplayScreen,d0
+    move.w   TilemapCameraY(a5),d0
+    mulu.w   #TILEMAP_LINE_STRIDE,d0
+    add.l    #DisplayScreen,d0
     lea      cpPlanes,a0
     moveq    #SCREEN_DEPTH-1,d7
 .rp:

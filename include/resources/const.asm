@@ -82,33 +82,39 @@ WINDOW_Y_STOP       = (WINDOW_Y_START+SCREEN_HEIGHT)&$ff
 
 
 ;------------------------------------------------------------------------------
-; Player BOB sheet frame offsets.
+;; Player BOB sheet frame offsets.
 ;
-; The player BOB graphics (player_bobs_64x576.raw / .msk) is an interleaved array
-; of 96 frames (4-bitplane, 16x24). These constants are frame-index offsets added
-; to the player's base BobOffset to select the correct animation cel.
+; The player BOB graphics (player_bobs_128x144.raw / .msk) is an interleaved array
+; of 24 frames (4-bitplane, 24x24 active in 32px storage).
+; Facing-left frames are flipped dynamically in the engine, cutting asset footprint.
 ;
-; Layout (Player 1 / Cole base = 0, Player 2 / Price base = 48):
-;   +0  .. +3    idle right (4 frames)
-;   +4  .. +11   walk right (8 frames)
-;   +12 .. +15   carry right (4 frames)
-;   +16 .. +19   on-ladder climbing (4 frames, rear view)
-;   +16          ladder idle frame (static neutral pose when idle on ladder)
-;   +20 .. +23   push frames
-;   +24 .. +27   slide / dash frames
-;   +28 .. +31   falling (4 frames)
-;   +32 .. +35   idle left (4 frames)
-;   +36 .. +43   walk left (8 frames)
-;   +44 .. +47   fall left (4 frames)
-;   PLAYER_LEFT_OFFSET added for left-facing versions (32)
+; Layout (24 frames total, 6 rows x 4 frames):
+;   Row 0: frames  0..3  = Idle right
+;   Row 1: frames  4..7  = Walk right
+;   Row 2: frames  8..11 = Attack right (with extended cane hook)
+;   Row 3: frames 12..15 = Death right (Row 9 collapse sequence)
+;   Row 4: frames 16..19 = On-ladder climbing (rear view)
+;          frame 16      = Ladder idle neutral pose
+;   Row 5: frames 20..23 = Falling (flailing sequence)
 ;------------------------------------------------------------------------------
-PLAYER_LEFT_OFFSET   = 32   ; frame offset for left-facing versions
-PLAYER_LADDER_OFFSET = 16   ; frame offset for on-ladder frames
-PLAYER_LADDER_IDLE   = 16   ; single frame used when idle/frozen on ladder
-PLAYER_FALL_OFFSET   = 28   ; frame offset for falling animation
-PLAYER_WALK_OFFSET   = 4    ; frame offset for walking animation
+PLAYER_IDLE_OFFSET        = 0    ; frame offset for idle right (0..3)
+PLAYER_WALK_OFFSET        = 4    ; frame offset for walking right (4..7)
+PLAYER_ATTACK_OFFSET      = 8    ; frame offset for cane strike right (8..11)
+PLAYER_DEATH_OFFSET       = 12   ; frame offset for death/collapse animation (12..15)
+PLAYER_LADDER_OFFSET      = 16   ; frame offset for on-ladder frames (16..19)
+PLAYER_LADDER_IDLE        = 16   ; single frame used when idle/frozen on ladder
+PLAYER_FALL_OFFSET        = 20   ; frame offset for falling animation (20..23)
 
-; Backward-compatibility aliases:
+ATTACK_DURATION           = 12   ; total frames of attack swing (~240ms)
+ATTACK_HIT_TICK           = 9    ; tick when forward strike connects with hitbox
+PLAYER_DEATH_DURATION     = 48   ; frames of collapse death animation (~960ms)
+
+ENEMY_STUN_DURATION       = 200  ; stun duration: ~4.0 seconds (200 frames PAL)
+ENEMY_RECOVERY_FLASH_TICKS= 75   ; final ~1.5 seconds warning: rapid white flash
+
+; Backward-compatibility aliases (left-facing uses dynamic flipped buffers):
+PLAYER_LEFT_OFFSET        = 0
+PLAYER_ATTACK_LEFT_OFFSET = PLAYER_ATTACK_OFFSET
 PLAYER_SPRITE_LEFT_OFFSET   = PLAYER_LEFT_OFFSET
 PLAYER_SPRITE_LADDER_OFFSET = PLAYER_LADDER_OFFSET
 PLAYER_SPRITE_LADDER_IDLE   = PLAYER_LADDER_IDLE
@@ -398,8 +404,8 @@ TILEMAP_LINE_STRIDE      = SCREEN_WIDTH_BYTE*TILEMAP_TILE_PLANES     ; 40 * 4 = 
 TILEMAP_ROW_STRIDE       = TILEMAP_TILE_HEIGHT*TILEMAP_LINE_STRIDE   ; 16 * 160 = 2560 bytes per tile row
 
 ; Water rising mechanics constants (tilemap.asm)
-WATER_START_ROW          = 40      ; initial water top row (0-based)
-WATER_START_PIXEL_Y      = WATER_START_ROW*TILEMAP_TILE_HEIGHT ; 40 * 16 = 640 initial water surface scanline
+WATER_START_ROW          = 41      ; initial water top row (0-based)
+WATER_START_PIXEL_Y      = WATER_START_ROW*TILEMAP_TILE_HEIGHT ; 41 * 16 = 656 initial water surface scanline
 WATER_RISE_FRAMES        = 500     ; frames between full tile rises (10 seconds at 50Hz PAL)
 WATER_TILE_SURFACE       = 104     ; tile index for animated water surface (TSX id 104, GID 105)
 WATER_TILE_DEEP          = 115     ; tile index for deep water (TSX id 115, GID 116)
@@ -438,14 +444,24 @@ ENEMY_FRAME_HEIGHT       = 16      ; 16px high
 ENEMY_FRAMES_PER_ANIM    = 4       ; 4 animation frames per enemy type
 ENEMY_ROW_STRIDE         = ENEMY_FRAME_HEIGHT*ENEMY_SHEET_BYTES*TILEMAP_TILE_PLANES ; 16 * 8 * 4 = 512 bytes per enemy type (4 frames)
 
-; Player Blitter Object (BOB) geometry equates
-PLAYER_WIDTH          = 16    ; player frame width in pixels
-PLAYER_HEIGHT         = 24    ; player frame height in pixels
-PLAYER_PLANES         = 4     ; 4 bitplanes
-PLAYER_SHEET_WIDTH        = 64    ; sheet width in pixels
-PLAYER_SHEET_BYTES        = 8     ; 64 / 8 = 8 bytes per plane
-PLAYER_ROW_STRIDE         = PLAYER_SHEET_BYTES*PLAYER_PLANES ; 32 bytes per row
-PLAYER_FRAME_STRIDE       = PLAYER_ROW_STRIDE*PLAYER_HEIGHT  ; 768 bytes per frame row (4 frames)
+; Dizzy Stars Blitter Object geometry equates (for stunned enemies)
+DIZZY_STARS_FRAME_WIDTH   = 16      ; 16px wide
+DIZZY_STARS_FRAME_HEIGHT  = 16      ; 16px high
+DIZZY_STARS_FRAMES        = 4       ; 4 orbiting animation frames
+DIZZY_STARS_SHEET_BYTES   = 8       ; 64px wide / 8 = 8 bytes per bitplane row
+DIZZY_STARS_SIZE          = DIZZY_STARS_FRAME_HEIGHT*DIZZY_STARS_SHEET_BYTES*TILEMAP_TILE_PLANES ; 16 * 8 * 4 = 512 bytes
+
+; Player Blitter Object (BOB) geometry equates (24 frames total)
+PLAYER_WIDTH              = 24    ; player frame width in pixels
+PLAYER_HEIGHT             = 24    ; player frame height in pixels
+PLAYER_PLANES             = 4     ; 4 bitplanes
+PLAYER_TOTAL_FRAMES       = 24    ; 24 sprites in total (6 rows x 4 frames)
+PLAYER_SHEET_WIDTH        = 128   ; sheet width in pixels (4 cels x 32px cell storage)
+PLAYER_SHEET_BYTES        = 16    ; 128 / 8 = 16 bytes per plane
+PLAYER_ROW_STRIDE         = PLAYER_SHEET_BYTES*PLAYER_PLANES ; 64 bytes per row
+PLAYER_FRAME_STRIDE       = PLAYER_ROW_STRIDE*PLAYER_HEIGHT  ; 1536 bytes per frame row (4 frames)
+PLAYER_BOB_TOTAL_BYTES    = PLAYER_FRAME_STRIDE*6            ; 1536 * 6 = 9216 bytes
+PLAYER_INVINCIBLE_DURATION= 100   ; 2.0s PAL post-respawn invulnerability timer (100 frames)
 
 ; Runtime Active Enemy Structure Offsets (in Variables block)
 MAX_ACTIVE_ENEMIES       = 16
@@ -460,8 +476,60 @@ ei_AnimFrame             = 14      ; Current animation frame (0..3)
 ei_PrevX                 = 16      ; Previous drawn X pixel position
 ei_PrevY                 = 18      ; Previous drawn Y pixel position
 ei_Drawn                 = 20      ; 1 if previously drawn and needs erase, 0 otherwise
-ei_PAD                   = 22      ; word align
+ei_StunTimer             = 22      ; stun timer countdown (0=active, >0=stunned)
+ei_PAD                   = 22      ; word align / legacy alias
 ei_SIZEOF                = 24
+
+; ==============================================================================
+; Animal Friend Types & Blitter Dimensions (16x16 cels, 4 frames)
+; ==============================================================================
+FRIEND_DOG1             = 1       ; Dog 1 (Tan Dog / Shiba, Row 0)
+FRIEND_DOG2             = 2       ; Dog 2 (White Dog / Puppy, Row 1)
+FRIEND_DUCKLING         = 3       ; Duckling (Row 2)
+
+; Legacy aliases for backwards compatibility
+FRIEND_BUNNY            = 1       ; Alias -> DOG1
+FRIEND_PUPPY            = 2       ; Alias -> DOG2
+FRIEND_LION             = 2       ; Alias -> DOG2
+FRIEND_KITTEN           = 1       ; Alias -> DOG1
+FRIEND_CHICK            = 3       ; Alias -> DUCKLING
+
+MAX_ACTIVE_FRIENDS      = 16      ; Maximum simultaneously tracked friends (increased from 8)
+FRIEND_FRAME_WIDTH      = 16      ; Width of 1 animal sprite cel in pixels
+FRIEND_FRAME_HEIGHT     = 16      ; Height of 1 animal sprite cel in pixels
+FRIEND_SHEET_BYTES      = 8       ; Width of 4-frame sheet in bytes (64px = 4 words)
+FRIEND_ROW_STRIDE       = 512     ; Stride per animal in raw graphics (16 scanlines * 32 bytes)
+FRIEND_ANIM_SPEED       = 8       ; Frames per animation step (at 50Hz, 8 frames = ~6.25 fps)
+
+; Runtime Active Friend Structure Offsets (in Variables block)
+fi_Type                  = 0       ; Friend Type (1..5, 0 = inactive)
+fi_X                     = 2       ; Current World X pixel position (0..319)
+fi_Y                     = 4       ; Current World Y pixel position (0..671)
+fi_AnimFrame             = 6       ; Current animation frame (0..3)
+fi_AnimTimer             = 8       ; Frame timer for jumping animation
+fi_Rescued               = 10      ; 1 if rescued/collected, 0 if active
+fi_PrevX                 = 12      ; Previous drawn Screen X pixel position
+fi_PrevY                 = 14      ; Previous drawn Screen Y pixel position
+fi_Drawn                 = 16      ; 1 if previously drawn and needs erase, 0 otherwise
+fi_PAD                   = 18      ; word align
+fi_SIZEOF                = 20
+
+;------------------------------------------------------------------------------
+; Oxygen Refill Pickup Constants
+;------------------------------------------------------------------------------
+MAX_ACTIVE_OXYGEN       = 8       ; Maximum simultaneously tracked oxygen refill pickups
+TILE_OXYGEN_REFILL      = 95      ; Default tile index in world tileset
+
+; Runtime Active Oxygen Refill Structure Offsets (in Variables block)
+ox_Col                  = 0       ; Tile Column (0..19)
+ox_Row                  = 2       ; Tile Row (0..41)
+ox_X                    = 4       ; World X pixel position (Col * 16)
+ox_Y                    = 6       ; World Y pixel position (Row * 16)
+ox_Collected            = 8       ; 1 if collected, 0 if active
+ox_Drawn                = 10      ; 1 if previously drawn and needs erase, 0 otherwise
+ox_TileId               = 12      ; Tile index in tileset (95)
+ox_PAD                  = 14      ; word align
+ox_SIZEOF               = 16
 
 
 
@@ -577,7 +645,7 @@ TILE_WALLD          = 5    ; wall interior: random variant D
 TILE_WALLE          = 6    ; wall interior: random variant E
 TILE_WALLF          = 7    ; wall interior: random variant F
 TILE_WALLRIGHT      = 8    ; right end-cap of a horizontal wall run
-TILE_PUSH           = 9    ; pushable block
+TILE_PUSH           = 37   ; pushable block (CRATE from tileset)
 TILE_LADDERA        = 10   ; ladder top, solid above  (resting on ceiling)
 TILE_LADDERB        = 11   ; ladder top, free above
 TILE_LADDERC        = 12   ; ladder middle section
@@ -719,6 +787,8 @@ ACTION_FALL         = 2
 ACTION_PLAYERPUSH   = 3
 ACTION_INTRO        = 4     ; level intro star animation
 ACTION_SWITCH       = 5     ; player switch star animation (same body as ACTION_INTRO)
+ACTION_ATTACK       = 6     ; cane strike attack animation
+ACTION_DEATH        = 7     ; player death/collapse animation
 
 
 ;------------------------------------------------------------------------------

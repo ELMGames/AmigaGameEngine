@@ -240,6 +240,11 @@ BridgeYOffsetTable:
 ;==============================================================================
 
 PlayerLogic:
+    ; Decrement post-respawn invulnerability timer
+    tst.w       PlayerInvincibleTimer(a5)
+    beq.s       .not_invincible
+    subq.w      #1,PlayerInvincibleTimer(a5)
+.not_invincible:
     move.w      ActionStatus(a5),d0     ; load current action state
     JMPINDEX    d0                      ; dispatch through jump table
 
@@ -250,6 +255,8 @@ PlayerLogic:
     dc.w        ActionPlayerPush-.i     ; state 3: push animation
     dc.w        ActionIntro-.i          ; state 4: level intro star animation
     dc.w        ActionIntro-.i          ; state 5: player switch star animation (same body)
+    dc.w        ActionAttack-.i         ; state 6: cane strike attack animation
+    dc.w        ActionDeath-.i          ; state 7: player collapse death animation
 
 
 
@@ -332,9 +339,12 @@ ActionFallActors:
     ; Restore both tiles from NonDisplayScreen before every draw.  This gives
     ; a clean slate regardless of velocity, eliminating ghosts in the original
     ; tile and in every intermediate tile throughout the entire fall.
+    ; Erase actor from previous sub-pixel position
+    bsr         ClearActor
+
     moveq       #0,d0
     move.w      Actor_YDec(a3),d0
-    divu        #24,d0                   ; d0.w = floor(YDec/24) = whole tiles fallen
+    lsr.w       #4,d0                    ; d0.w = floor(YDec/16) = whole tiles fallen
     move.w      Actor_PrevX(a3),d1      ; save tile X (preserved by RestoreBackgroundTile)
     move.w      Actor_PrevY(a3),d2      ; save base tile Y
     add.w       d0,d2                    ; d2 = tile Y of sprite top
@@ -369,6 +379,8 @@ ActionFallActors:
     ; Fall complete: clean up
     clr.w       Actor_YDec(a3)         ; reset sub-tile offset
     clr.w       Actor_HasFalled(a3)    ; mark fall as done
+    move.w      #1,Actor_Dirty(a3)     ; flag settled actor for redraw
+    move.w      Actor_Y(a3),Actor_PrevY(a3) ; update PrevY to match landed tile row
 
     ; Landed in an acid pool?  WallpaperWork keeps TILE_ACID permanently
     ; (GameMap's acid byte is currently overwritten by the actor's own type,
@@ -544,18 +556,14 @@ ActorDissolveInAcid:
 ;      otherwise return to ACTION_IDLE.
 ;==============================================================================
 
-PUSH_STEPS  = 12
+PUSH_STEPS  = 16
 PUSH_DELTA  = (SINE_ANGLES<<16)/2/PUSH_STEPS
 
 ActionPlayerPush:
     move.l      PushedActor(a5),a3     ; a3 -> the block being pushed
 
-    ; First, restore the background tile from NonDisplayScreen for the entire animation area
-    move.w      Actor_PrevX(a3),d0      ; tile X coordinate
-    move.w      Actor_PrevY(a3),d1      ; tile Y coordinate
-    bsr         RestoreBackgroundTile        ; blit background from NonDisplayScreen to DisplayScreen
-
-    bsr         ClearActor             ; erase block from current drawn position
+    ; Erase block from current drawn position
+    bsr         ClearActor
 
     ; Advance the fixed-point angle accumulator
     lea         Quadratic,a0
@@ -569,30 +577,41 @@ ActionPlayerPush:
     add.w       d0,d0                 ; word index (table entries are words)
     move.w      (a0,d0.w),d0          ; d0 = quadratic value (-SINE_RANGE..+SINE_RANGE)
 
-    ; Scale: map quadratic value to 0..24 pixel range
+    ; Scale: map quadratic value to 0..16 pixel range
     muls        #(TILE_WIDTH/2),d0    ; scale by 8 (half of 16-pixel tile width)
-    divs        #SINE_RANGE,d0        ; normalise to -12..+12
+    divs        #SINE_RANGE,d0        ; normalise to -8..+8
     add.w       #(TILE_WIDTH/2),d0    ; shift to 0..16 range
 
     ; Apply direction sign
     move.w      Actor_DirectionX(a3),d4
     tst.w       Actor_DirectionX(a3)
-    bpl         .positive
+    bpl.s       .positive
     neg.w       d0                    ; negative direction: negate offset
 
-.positive
+.positive:
     move.w      d0,Actor_XDec(a3)    ; store computed sub-pixel X offset
 
     bsr         DrawActor             ; redraw block at new sub-pixel position
 
+    ; Advance player sub-pixel position & walk animation
+    move.w      Player_DirectionX(a4),d0
+    add.w       d0,Player_XDec(a4)
+    bsr         PlayerShowWalkAnim
+
     ; Advance frame counter; check for push completion
-    addq.w      #1,ActionCounter(a3)
-    cmp.w       #PUSH_STEPS,ActionCounter(a3)
+    addq.w      #1,ActionCounter(a5)
+    cmp.w       #PUSH_STEPS,ActionCounter(a5)
     bne         .exit                 ; not done yet
 
     ; Push animation complete
     clr.w       Actor_XDec(a3)       ; clear sub-pixel offset (snap to final position)
     move.w      Actor_X(a3),Actor_PrevX(a3)   ; update previous position record
+    clr.w       Actor_HasMoved(a3)
+    move.w      #1,Actor_Dirty(a3)     ; flag settled actor for redraw
+
+    clr.w       Player_XDec(a4)
+    clr.w       Player_YDec(a4)
+    bsr         PlayerMoveLogic       ; commit player to vacated tile
 
     ; Pushed into an acid pool?  (WallpaperWork keeps TILE_ACID permanently;
     ; the GameMap cell currently holds the block's own type, written by
@@ -603,28 +622,28 @@ ActionPlayerPush:
     add.w       Actor_X(a3),d0
     lea         WallpaperWork(a5),a0
     cmp.b       #TILE_ACID,(a0,d0.w)
-    bne         .push_no_acid
+    bne.s       .push_no_acid
     bsr         ActorDissolveInAcid    ; cloud burst + status 0 + map -> BLOCK_ACID
     bsr         CleanActors            ; purge the dead actor from ActorList
     bsr         SortActors
-.push_no_acid
+.push_no_acid:
 
     ; Check if actors should now fall
     bsr         ActorFallAll           ; move any actors first; d5 = actors now falling
-.fallcheck
+.fallcheck:
     move.w      #ACTION_IDLE,d0
     tst.w       d5
-    beq         .nofall
+    beq.s       .nofall
     move.w      #ACTION_FALL,d0
 
-.nofall
+.nofall:
     move.w      d0,ActionStatus(a5)
     ; If settling to IDLE (no fall), snapshot now; fall case deferred to ActionFall
     tst.w       d0
-    bne         .exit
+    bne.s       .exit
     bsr         TakeSnapshot
 
-.exit
+.exit:
     rts
 
 
@@ -974,16 +993,11 @@ ActionIntro:
     ; Select the correct initial BOB frame for the newly-active player.
     ; Without this, d0=0 always shows the right-facing idle frame for one frame
     ; before the normal action loop corrects it.
-    moveq       #0,d0
+    moveq       #PLAYER_IDLE_OFFSET,d0
     tst.w       Player_OnLadder(a4)
-    bne         .ac_ladder                  ; on ladder: use ladder idle frame
-    tst.w       Player_Facing(a4)
-    bpl         .ac_show                    ; positive = right: frame 0 is correct
-    move.w      #PLAYER_LEFT_OFFSET,d0  ; facing left: use left-facing base
-    bra         .ac_show
-.ac_ladder
+    beq.s       .ac_show
     move.w      #PLAYER_LADDER_IDLE,d0  ; idle-on-ladder frame
-.ac_show
+.ac_show:
     bsr         ShowPlayer
     move.w      #ACTION_IDLE,ActionStatus(a5)
     rts
@@ -1474,6 +1488,45 @@ ActionDirtActors:
 ;==============================================================================
 
 ActionMove:
+    ; -------------------------------------------------------------------------
+    ; Responsive Attack Interrupt:
+    ; If player presses Fire/Space during movement (off-ladder), immediately
+    ; interrupt walk and strike!
+    ; -------------------------------------------------------------------------
+    tst.w       Player_OnLadder(a4)
+    bne.s       .no_move_attack
+    btst        #CONTROLB_FIRE,ControlsTrigger(a5)
+    beq.s       .no_move_attack
+
+    ; Player pressed Fire while moving: snap to nearest tile and attack!
+    cmp.w       #TILE_WIDTH/2,Player_ActionCount(a4)
+    ble.s       .complete_and_attack
+
+    ; Moved <= 7 pixels: snap back to starting tile
+    clr.w       Player_XDec(a4)
+    clr.w       Player_YDec(a4)
+    clr.w       Player_ActionCount(a4)
+    clr.w       PlayerMoved(a5)
+    move.w      Player_X(a4),Player_NextX(a4)
+    move.w      Player_Y(a4),Player_NextY(a4)
+    clr.w       Player_DirectionX(a4)
+    clr.w       Player_DirectionY(a4)
+    bra         PlayerStartAttack
+
+.complete_and_attack:
+    ; Moved >= 8 pixels: complete move to destination tile
+    clr.w       Player_XDec(a4)
+    clr.w       Player_YDec(a4)
+    clr.w       Player_ActionCount(a4)
+    clr.w       Player_DirectionX(a4)
+    clr.w       Player_DirectionY(a4)
+    bsr         PlayerMoveLogic
+    bsr         PlayerFallLogic
+    cmp.w       #ACTION_FALL,ActionStatus(a5)
+    beq.s       .exit
+    bra         PlayerStartAttack
+
+.no_move_attack:
     ; Advance sub-pixel position by the movement direction (1 pixel per frame)
     move.w      Player_XDec(a4),d0
     add.w       Player_DirectionX(a4),d0
@@ -1544,6 +1597,10 @@ ActionIdle:
 .f9_done
     rts
 .nof9
+    ; Check attack key: Spacebar / Joy Fire / Down + Fire
+    btst        #CONTROLB_FIRE,ControlsTrigger(a5)
+    bne         PlayerStartAttack
+
     clr.w       PlayerMoved(a5)        ; clear "did player move this frame" flag
     bsr         ActorsSavePos          ; save all actor positions for delta detection
 
@@ -1577,6 +1634,17 @@ PlayerSwitch:
 ;==============================================================================
 
 CheckLevelDone:
+    ; If level has animal friends, completion requires rescuing all friends
+    tst.w       ActiveFriendCount(a5)
+    beq.s       .check_legacy_enemies
+
+    move.w      FriendsRescuedCount(a5),d0
+    cmp.w       ActiveFriendCount(a5),d0
+    blt.s       .notdone
+    moveq       #0,d3                   ; all friends rescued -> Level Complete!
+    rts
+
+.check_legacy_enemies:
     tst.w       ActiveEnemyCount(a5)
     bne.s       .notdone
 
@@ -1653,20 +1721,8 @@ PlayerMoveLogic:
 .notladdernext
     move.b      d4,(a0,d1.w)           ; write player presence into next cell
 
-    ; Clear the current cell.
-    ; If it was a ladder ID, restore it to plain BLOCK_LADDER.
-    move.b      #BLOCK_EMPTY,d4
-    cmp.b       #BLOCK_LADDER,d2
-    beq.s       .is_ladder_last
-    cmp.b       #BLOCK_PLAYERLADDER,d2
-    beq.s       .is_ladder_last
-    cmp.b       Player_LadderId(a4),d2
-    bne.s       .notladderlast
-.is_ladder_last:
-    move.b      #BLOCK_LADDER,d4       ; restore the ladder
-
-.notladderlast
-    move.b      d4,(a0,d0.w)           ; write to old cell
+    ; Clear the old cell: restore BLOCK_LADDER if cell has ladder, else BLOCK_EMPTY
+    bsr         RestoreVacatedTile
 
     ; Commit tile-grid position and refresh pixel cache
     move.w      Player_NextX(a4),d0
@@ -1731,8 +1787,12 @@ PlayerFallLogic:
     addq.w      #1,d4                 ; row below
     cmp.w       CurrentMapHeight(a5),d4
     bge         .found                ; reached bottom of map
-    tst.b       WALL_PAPER_WIDTH(a0,d1.w)  ; cell below non-empty?
-    bne         .found
+    move.b      WALL_PAPER_WIDTH(a0,d1.w),d2 ; cell below
+    beq.s       .air_below            ; empty air: keep falling
+    cmp.b       #BLOCK_PLAYERSTART,d2
+    beq.s       .air_below            ; player spawn marker: air, keep falling
+    bra         .found                ; solid/ladder/dirt: found landing
+.air_below:
     addq.w      #1,d3
     add.w       #WALL_PAPER_WIDTH,d1
     bra         .findfloor
@@ -1746,8 +1806,8 @@ PlayerFallLogic:
     move.w      d3,Player_NextY(a4)   ; store landing tile Y
     move.w      Player_X(a4),Player_NextX(a4)  ; X unchanged during a vertical fall
 
-    ; Update GameMap: clear current cell, mark landing cell
-    clr.b       (a0,d0.w)
+    ; Update GameMap: clear current cell (restore ladder if applicable), mark landing cell
+    bsr         RestoreVacatedTile
     move.b      Player_BlockId(a4),(a0,d1.w)
 
     ; Activate fall animation
@@ -1977,11 +2037,7 @@ PlayerShowIdleAnim:
 .show_ground:
     move.w      Player_AnimFrame(a4),d0
     and.w       #3,d0
-    tst.w       Player_Facing(a4)
-    bpl.s       .show_frame           ; positive facing = right: frames 0..3 (idle-right)
-    add.w       #PLAYER_LEFT_OFFSET,d0 ; left-facing: frames 32..35
-
-.show_frame:
+    add.w       #PLAYER_IDLE_OFFSET,d0
     bsr         ShowPlayer            ; display the selected animation frame
     rts
 
@@ -1992,13 +2048,9 @@ PlayerShowIdleAnim:
 ; Called from ActionMove every frame.  Advances the animation cycle every
 ; other frame (TickCounter AND 1) for walk animation.
 ;
-; Walk animation uses 8 frames (0..7) for off-ladder, 4 frames (0..3) for
+; Walk animation uses 4 frames (0..3) for off-ladder, 4 frames (0..3) for
 ; on-ladder climbing.
-;
-; Frame selection:
-;   On ladder:         AnimFrame (0..3) + PLAYER_LADDER_OFFSET
-;   Off ladder, right: AnimFrame (0..7) + PLAYER_WALK_OFFSET
-;   Off ladder, left:  (AnimFrame + PLAYER_LEFT_OFFSET) + PLAYER_WALK_OFFSET
+; Facing-left versions are flipped dynamically in TilemapDrawPlayer.
 ;==============================================================================
 
 PlayerShowWalkAnim:
@@ -2019,45 +2071,28 @@ PlayerShowWalkAnim:
     and.w       #1,d0
     bne.s       .show                 ; odd frame: show but don't advance
 
-    ; Advance walk animation (even frames only)
+    ; Advance walk animation (even frames only, 0..3)
     move.w      Player_AnimFrame(a4),d0
     addq.w      #1,d0
-
-    ; Cycle limit depends on whether on ladder (0-3) or walking (0-7)
-    tst.w       Player_OnLadder(a4)
-    beq.s       .walkframes
-    and.w       #3,d0                 ; ladder: cycle 0..3
-    bra.s       .saveframe
-
-.walkframes:
-    and.w       #7,d0                 ; walk: cycle 0..7
-.saveframe:
+    and.w       #3,d0                 ; cycle 0..3 for both walk and ladder
     move.w      d0,Player_AnimFrame(a4)
 
 .show:
     move.w      Player_AnimFrame(a4),d0
+    and.w       #3,d0
 
     ; Determine if on ladder or walking
     tst.w       Player_OnLadder(a4)
     beq.s       .walking
 
-    ; On ladder: strictly clamp to 0..3 and use ladder offset (16)
-    and.w       #3,d0
+    ; On ladder: use ladder offset (16)
     add.w       #PLAYER_LADDER_OFFSET,d0
     bsr         ShowPlayer
     rts
 
 .walking:
-    ; Off ladder: strictly clamp to 0..7
-    and.w       #7,d0
-    move.w      #PLAYER_WALK_OFFSET,d1
-
-    tst.w       Player_Facing(a4)
-    bpl.s       .rightface
-    add.w       #PLAYER_LEFT_OFFSET,d0    ; left-facing: offset the frame index (32)
-
-.rightface:
-    add.w       d1,d0                 ; add walk offset (4)
+    ; Off ladder: use walk offset (4)
+    add.w       #PLAYER_WALK_OFFSET,d0
     bsr         ShowPlayer
     rts
 
@@ -2078,7 +2113,7 @@ PlayerShowWalkAnim:
 ;   BLOCK_DIRT        -> PlayerKillDirt  (walk through dirt, destroying it)
 ;   BLOCK_SOLID       -> PlayerNotMove   (blocked by wall)
 ;   BLOCK_ENEMYFLOAT  -> PlayerKillEnemy (kill the floating enemy)
-;   BLOCK_PLAYERSTART -> PlayerNotMove   (can't walk into start cell)
+;   BLOCK_PLAYERSTART -> PlayerMoveEmpty (allow moving into player start / empty floor cells)
 ;   BLOCK_PLAYERLADDER-> PlayerMoveLadder (move along while on ladder)
 ;   BLOCK_COCOON      -> PlayerPushBlock (cocoons push like crates)
 ;   BLOCK_ACID        -> PlayerNotMove   (impassable to players)
@@ -2098,7 +2133,7 @@ PlayerTryMove:
     dc.w        PlayerKillDirt-.i     ; BLOCK_DIRT        = 4
     dc.w        PlayerNotMove-.i      ; BLOCK_SOLID       = 5
     dc.w        PlayerKillEnemy-.i    ; BLOCK_ENEMYFLOAT  = 6
-    dc.w        PlayerNotMove-.i      ; BLOCK_PLAYERSTART = 7
+    dc.w        PlayerMoveEmpty-.i    ; BLOCK_PLAYERSTART = 7  (empty/walkable in single player)
     dc.w        PlayerNotMove-.i      ; block 8 (unused)  = 8
     dc.w        PlayerMoveLadder-.i   ; BLOCK_PLAYERLADDER= 9
     dc.w        PlayerMoveLadder-.i   ; block 10 (unused) = 10
@@ -2122,17 +2157,27 @@ PlayerTryMove:
 ;==============================================================================
 
 PlayerPushBlock:
-    ; Check if cell BEYOND the push block is within the same row (0 <= X + 2*DirX < WALL_PAPER_WIDTH)
+    ; Only allowed for horizontal movement (DirectionX = +/-1, DirectionY = 0)
+    tst.w       Player_DirectionY(a4)
+    bne.s       .push_blocked
+    tst.w       Player_DirectionX(a4)
+    beq.s       .push_blocked
+
+    ; Check if cell BEYOND the push block is within the same row (0 <= X + 2*DirX < CurrentMapWidth)
     move.w      Player_X(a4),d1
     add.w       Player_DirectionX(a4),d1  ; push block column
     add.w       Player_DirectionX(a4),d1  ; beyond push block column
     bmi.s       .push_blocked
-    cmp.w       #WALL_PAPER_WIDTH,d1
+    cmp.w       CurrentMapWidth(a5),d1
     bge.s       .push_blocked
 
     add.w       Player_DirectionX(a4),d0  ; advance to cell BEYOND the push block
     move.b      (a0,d0.w),d2              ; d2 = block type beyond
     beq         PlayerMoveActor           ; empty -> initiate push
+    cmp.b       #BLOCK_PLAYERSTART,d2
+    beq         PlayerMoveActor           ; player start / empty floor -> initiate push
+    cmp.b       #BLOCK_LADDER,d2
+    beq         PlayerMoveActor           ; ladder opening -> push it into the shaft
     cmp.b       #BLOCK_ACID,d2
     beq         PlayerMoveActor           ; acid -> push it into the pool
 .push_blocked:
@@ -2319,34 +2364,33 @@ PlayerMoveActor:
     add.w       d0,d2                 ; d2 = map offset of new cell
     lea         GameMap(a5),a0
     move.b      (a0,d0.w),(a0,d2.w)   ; copy block type to new cell
-    clr.b       (a0,d0.w)             ; clear old cell
+    bsr         RestoreVacatedTile    ; restore old cell: BLOCK_LADDER if ladder, else BLOCK_EMPTY
 
-    ; Update cached pixel X for the new tile position (d0/d2 now free)
+    ; Update cached pixel X for the new tile position (16px tile stride)
     move.w      Actor_X(a3),d0
-    move.w      d0,d2
     lsl.w       #4,d0
-    lsl.w       #3,d2
-    add.w       d2,d0
     move.w      d0,Actor_PixelX(a3)
 
     ; Initialise push animation
     clr.l       Actor_Delta(a3)       ; reset easing accumulator
-    move.w      #ACTION_PLAYERPUSH,ActionStatus(a5)  ; enter push state
     move.l      a3,PushedActor(a5)   ; remember which actor is being pushed
 
     clr.w       Actor_XDec(a3)
     clr.w       Actor_YDec(a3)
     move.w      Player_DirectionX(a4),Actor_DirectionX(a3)  ; set push direction
     clr.w       Actor_DirectionY(a3)
-    clr.w       ActionCounter(a3)    ; reset push frame counter
+    clr.w       ActionCounter(a5)    ; reset push frame counter in Variables
 
-    bra         .exit                 ; found the block - done
+    ; Initiate player walk into the cell vacated by the block
+    bsr         PlayerDoMove
+    move.w      #ACTION_PLAYERPUSH,ActionStatus(a5)  ; enter push state (override ACTION_MOVE from PlayerDoMove)
 
-.next
-    add.w       #Actor_Sizeof,a3      ; advance to next actor
+    bra.s       .exit                 ; found the block - done
+
+.next:
     dbra        d7,.loop
 
-.exit
+.exit:
     rts
 
 
@@ -2459,20 +2503,40 @@ ActorFallAllAppend:
 ;==============================================================================
 
 ActorDrawStatic:
+    move.w      d7,-(sp)
+    move.w      Actor_SpriteOffset(a3),d0
+    move.w      Actor_Y(a3),d2
+    move.w      Actor_X(a3),d3
+    bsr         TilemapBlitSingleTile
+
+    ; Re-stamp foreground over settled actor tile
     move.w      Actor_X(a3),d0
-    lsl.w       #4,d0                      ; d0 = pixel X
+    lsl.w       #4,d0
     move.w      Actor_Y(a3),d1
-    sub.w       TilemapScreenOffset(a5),d1 ; relative row in visible viewport
-    bmi.s       .offscreen                 ; above top of viewport -> skip
-    cmp.w       #TILEMAP_VIEW_ROWS,d1
-    bge.s       .offscreen                 ; below bottom of viewport -> skip
-    lsl.w       #4,d1                      ; pixel Y = rel_row * 16
-    moveq       #0,d2
-    move.w      Actor_SpriteOffset(a3),d2
-    lea         DisplayScreen,a1
-    bsr         PasteTile
-.offscreen
-    clr.w       Actor_Dirty(a3)            ; tile is now correctly displayed (or off-screen)
+    lsl.w       #4,d1
+    move.w      #16,d2
+    move.w      #16,d3
+    bsr         TilemapStampForegroundOverBox
+
+    ; Submerge check
+    move.w      WaterPixelY(a5),d2
+    bmi.s       .ads_skip
+    move.w      d1,d4
+    mulu.w      #TILEMAP_LINE_STRIDE,d4
+    moveq       #0,d5
+    move.w      d0,d5
+    lsr.w       #4,d5
+    add.w       d5,d5
+    add.l       d5,d4
+    lea         DisplayScreen,a0
+    adda.l      d4,a0
+    move.w      #16,d7
+    move.w      WaterPixelY(a5),d2
+    bsr         TilemapSubmergeActor
+
+.ads_skip:
+    clr.w       Actor_Dirty(a3)            ; tile is now correctly displayed
+    move.w      (sp)+,d7
     rts
 
 
@@ -2481,13 +2545,14 @@ ActorDrawStatic:
 ;
 ; Scans the cells below the actor's current position in GameMap until a
 ; non-empty cell is found.  The count of empty cells is the fall distance.
+; Ladders are treated as open shafts through which actors fall.
 ;
 ; If the actor is directly supported (cell below non-empty), no fall occurs
 ; and d3 = 0 on return.
 ;
 ; If the actor should fall:
 ;   - Actor_Y is advanced by the fall tile count
-;   - Actor_FallY is set to (fall_tiles * 24) pixels (target for YDec)
+;   - Actor_FallY is set to (fall_tiles * 16) pixels (target for YDec)
 ;   - Actor_HasFalled = 1
 ;   - GameMap is updated: old cell cleared, new cell gets the actor type
 ;   - d3 = non-zero
@@ -2497,7 +2562,7 @@ ActorDrawStatic:
 ; see the acid check in ActionFallActors).
 ;
 ; On entry:  a3 = actor struct pointer
-; Destroys:  a0, d0, d1, d2, d3
+; Destroys:  a0, d0, d1, d2, d3, d4
 ;==============================================================================
 
 ActorFall:
@@ -2511,41 +2576,45 @@ ActorFall:
 
     moveq       #0,d3                 ; fall distance (tiles)
 
-.findfloor
+.findfloor:
     move.b      WALL_PAPER_WIDTH(a0,d1.w),d2  ; d2 = cell below
-    beq         .fallrow              ; empty: keep scanning down
+    beq.s       .fallrow              ; empty: keep scanning down
+    cmp.b       #BLOCK_LADDER,d2      ; ladder shaft: fall through!
+    beq.s       .fallrow
+    cmp.b       #BLOCK_PLAYERLADDER,d2 ; ladder with player on it: also fall through!
+    beq.s       .fallrow
+    cmp.b       #BLOCK_PLAYERSTART,d2  ; player cell: fall through!
+    beq.s       .fallrow
     cmp.b       #BLOCK_ACID,d2
-    bne         .found                ; real support: rest on top of it
+    bne.s       .found                ; real support: rest on top of it
     addq.w      #1,d3                 ; acid below: fall one final row INTO
     add.w       #WALL_PAPER_WIDTH,d1  ; the pool (dissolves on landing)
-    bra         .found
+    bra.s       .found
 
-.fallrow
+.fallrow:
     addq.w      #1,d3                 ; fall one more row
     add.w       #WALL_PAPER_WIDTH,d1  ; advance map offset one row
-    bra         .findfloor
+    bra.s       .findfloor
 
-.found
+.found:
     tst.w       d3
-    beq         .exit                 ; no fall (floor is directly below)
+    beq.s       .exit                 ; no fall (floor is directly below)
 
     ; Commit the fall
     add.w       d3,Actor_Y(a3)        ; advance actor Y by fall distance
-    mulu        #TILE_HEIGHT,d3       ; convert tiles to pixels (for YDec animation target)
-    move.w      d3,Actor_FallY(a3)   ; set pixel target for fall animation
-    move.w      #1,Actor_HasFalled(a3)    ; mark as falling
-    move.b      (a0,d0.w),(a0,d1.w)  ; copy actor type from old to new map cell
-    clr.b       (a0,d0.w)            ; clear old map cell
+    move.w      d3,d4
+    lsl.w       #4,d4                 ; convert tiles to 16px pixels
+    move.w      d4,Actor_FallY(a3)    ; set pixel target for fall animation
+    move.w      #1,Actor_HasFalled(a3) ; mark as falling
+    move.b      (a0,d0.w),(a0,d1.w)   ; copy actor type from old to new map cell
+    bsr         RestoreVacatedTile    ; restore old cell: BLOCK_LADDER if ladder, else BLOCK_EMPTY
 
-    ; Update cached pixel Y for the new tile position (d0/d1 now free)
+    ; Update cached pixel Y for the new tile position
     move.w      Actor_Y(a3),d0
-    move.w      d0,d1
-    lsl.w       #4,d0
-    lsl.w       #3,d1
-    add.w       d1,d0
+    lsl.w       #4,d0                 ; d0 = Actor_Y * 16
     move.w      d0,Actor_PixelY(a3)
 
-.exit
+.exit:
     rts
 
 
@@ -2620,7 +2689,7 @@ PlayerKillActor:
     mulu        #WALL_PAPER_WIDTH,d1
     add.w       d1,d0
     lea         GameMap(a5),a0
-    clr.b       (a0,d0.w)
+    bsr         RestoreVacatedTile           ; restore ladder if cell has ladder, else empty
 
     ; Erase from screen
     move.w      Actor_X(a3),d0
@@ -2715,27 +2784,29 @@ ClearPlayer:
 
 RestoreBackgroundTile:
     PUSHM       d0-d2/a0-a1
+
+    ; Bounds check col and row
+    tst.w       d0
+    bmi.s       .rbt_skip
+    cmp.w       CurrentMapWidth(a5),d0
+    bge.s       .rbt_skip
+    tst.w       d1
+    bmi.s       .rbt_skip
+    cmp.w       CurrentMapHeight(a5),d1
+    bge.s       .rbt_skip
+
+    ; Screen offset = (row * 2560) + (col * 2)
+    move.w      d1,d2
+    mulu.w      #TILEMAP_ROW_STRIDE,d2  ; row * 2560
+    moveq       #0,d1
+    move.w      d0,d1
+    add.w       d1,d1                   ; col * 2
+    add.l       d1,d2
+
     lea         NonDisplayScreen,a0
     lea         DisplayScreen,a1
-
-    sub.w       TilemapScreenOffset(a5),d1 ; relative row in visible viewport
-    bmi         .rbt_skip
-    cmp.w       #TILEMAP_VIEW_ROWS,d1
-    bge         .rbt_skip
-
-    lsl.w       #4,d0                  ; pixel X = d0 * 16
-    lsl.w       #4,d1                  ; pixel Y = rel_row * 16
-
-    tst.l       CurrentLevelDef(a5)
-    beq.s       .rbt_legacy
-
-    ; --- 4-plane 16x16 Tiled engine ---
-    mulu.w      #TILEMAP_LINE_STRIDE,d1 ; d1 = rel_row * 16 * 160
-    move.w      d0,d2
-    asr.w       #3,d2                   ; byte column = pixel_X / 8 = d0 * 2
-    add.w       d2,d1
-    add.l       d1,a0                   ; source in NonDisplayScreen
-    add.l       d1,a1                   ; dest in DisplayScreen
+    adda.l      d2,a0
+    adda.l      d2,a1
 
     WAITBLIT
     move.w      #$09f0,BLTCON0(a6)      ; D = A (copy pristine tile from NonDisplayScreen)
@@ -2746,55 +2817,18 @@ RestoreBackgroundTile:
     move.l      a0,BLTAPT(a6)           ; source (NonDisplayScreen)
     move.l      a1,BLTDPT(a6)           ; dest (DisplayScreen)
     move.w      #(TILEMAP_TILE_HEIGHT*TILEMAP_TILE_PLANES<<6)|(TILEMAP_TILE_BYTES/2),BLTSIZE(a6) ; 64 lines x 1 word
-    bra.s       .rbt_skip
 
-.rbt_legacy:
-    mulu        #SCREEN_STRIDE,d1
-    move.w      d0,d2
-    asr.w       #3,d2
-    add.w       d2,d1
-    add.l       d1,a0
-    add.l       d1,a1
-
-    move.l      #$ffffff00,d1
-    and.w       #$f,d0
-    beq         .left
-    move.l      #$00ffffff,d1
-
-.left
-    WAITBLIT
-    move.l      #$7ca<<16,BLTCON0(a6)
-    move.l      d1,BLTAFWM(a6)
-    move.w      #-1,BLTADAT(a6)
-    move.l      a0,BLTBPT(a6)
-    move.l      a1,BLTCPT(a6)
-    move.l      a1,BLTDPT(a6)
-    move.w      #0,BLTAMOD(a6)
-    move.w      #TILE_BLT_MOD,BLTBMOD(a6)
-    move.w      #TILE_BLT_MOD,BLTCMOD(a6)
-    move.w      #TILE_BLT_MOD,BLTDMOD(a6)
-    move.w      #TILE_BLT_SIZE,BLTSIZE(a6)
-.rbt_skip
+.rbt_skip:
     POPM        d0-d2/a0-a1
     bsr         MarkTileDirty          ; auto-flag for end-of-frame actor/frozen-player redraw
     rts
 
 
 ;==============================================================================
-; ClearActor  -  Erase a (potentially sub-pixel-shifted) actor from DisplayScreen
+; ClearActor  -  Erase a moving actor from DisplayScreen
 ;
-; Unlike RestoreBackgroundTile which uses tile coordinates, ClearActor uses the
-; actor's PrevX/PrevY tile position PLUS XDec/YDec sub-tile offsets to compute
-; the exact pixel position.  This correctly erases an actor that is mid-animation.
-;
-; The mask applied to the blit depends on the X pixel offset modulo 16:
-;   If offset >= 9: use the 3-word (fat) blit with first-word mask from ClearMasks
-;   If offset <  9: use the 2-word (thin) blit with same mask but different modulos
-;
-; ClearMasks[d1*4] provides the pre-computed mask longword for each of the
-; 16 possible sub-pixel X offsets.  The mask is used in BLTAFWM.
-;
-; After clearing, DrawActor redraws the actor at its new (advanced) position.
+; Uses PrevX/PrevY tile position PLUS XDec/YDec sub-tile offsets to compute
+; the exact WorldX and WorldY, then restores from NonDisplayScreen.
 ;
 ; On entry:
 ;   a3 = actor structure pointer
@@ -2802,77 +2836,21 @@ RestoreBackgroundTile:
 ;==============================================================================
 
 ClearActor:
-    PUSHMOST
+    PUSHM       d0-d3/a0-a1
 
-    ; Compute pixel position from previous tile + sub-pixel offsets
+    ; Compute WorldX = PrevX * 16 + XDec
     move.w      Actor_PrevX(a3),d0
     lsl.w       #4,d0
-    add.w       Actor_XDec(a3),d0     ; pixel X = PrevX*16 + XDec
+    add.w       Actor_XDec(a3),d0
 
+    ; Compute WorldY = PrevY * 16 + YDec
     move.w      Actor_PrevY(a3),d1
-    sub.w       TilemapScreenOffset(a5),d1 ; relative row in visible viewport
-    bmi         .ca_skip
-    cmp.w       #TILEMAP_VIEW_ROWS,d1
-    bge         .ca_skip
+    lsl.w       #4,d1
+    add.w       Actor_YDec(a3),d1
 
-    lsl.w       #4,d1                  ; pixel Y = rel_row * 16
-    add.w       Actor_YDec(a3),d1     ; pixel Y = rel_row*16 + YDec
+    bsr         TilemapErase16x16Actor
 
-    lea         NonDisplayScreen,a0
-    lea         DisplayScreen,a1
-
-    mulu        #SCREEN_STRIDE,d1
-    move.w      d0,d2
-    asr.w       #3,d2
-    add.w       d2,d1
-    add.l       d1,a0
-    add.l       d1,a1
-
-    ; Look up the pre-computed mask for this X sub-pixel offset
-    lea         ClearMasks(a5),a2
-    and.w       #$f,d0                 ; d0 = X mod 16 (0..15)
-    move.w      d0,d1
-    add.w       d1,d1                  ; d1 = d0 * 2
-    add.w       d1,d1                  ; d1 = d0 * 4 (longword index)
-    move.l      (a2,d1.w),d1          ; d1 = mask longword for this shift
-
-    cmp.w       #9,d0                  ; shift >= 9 -> fat (3-word) blit
-    bcs         .left                  ; shift < 9  -> thin (2-word) blit
-
-    ; Fat blit (shift >= 9): 3 words wide, adjusted modulos
-    WAITBLIT
-    move.l      #$7ca<<16,BLTCON0(a6)
-    move.l      d1,BLTAFWM(a6)
-    move.w      #-1,BLTADAT(a6)
-    move.l      a0,BLTBPT(a6)
-    move.l      a1,BLTCPT(a6)
-    move.l      a1,BLTDPT(a6)
-    move.w      #0,BLTAMOD(a6)
-    move.w      #TILE_BLT_MOD-2,BLTBMOD(a6) ; -2: 3 words per row vs 2
-    move.w      #TILE_BLT_MOD-2,BLTCMOD(a6)
-    move.w      #TILE_BLT_MOD-2,BLTDMOD(a6)
-    move.w      #TILE_BLT_SIZE+1,BLTSIZE(a6) ; +1 word for the extra column
-
-    POPMOST
-    rts
-
-.left
-    ; Thin blit (shift < 9): 2 words wide
-    WAITBLIT
-    move.l      #$7ca<<16,BLTCON0(a6)
-    move.l      d1,BLTAFWM(a6)
-    move.w      #-1,BLTADAT(a6)
-    move.l      a0,BLTBPT(a6)
-    move.l      a1,BLTCPT(a6)
-    move.l      a1,BLTDPT(a6)
-    move.w      #0,BLTAMOD(a6)
-    move.w      #TILE_BLT_MOD,BLTBMOD(a6)
-    move.w      #TILE_BLT_MOD,BLTCMOD(a6)
-    move.w      #TILE_BLT_MOD,BLTDMOD(a6)
-    move.w      #TILE_BLT_SIZE,BLTSIZE(a6)
-
-.ca_skip
-    POPMOST
+    POPM        d0-d3/a0-a1
     rts
 
 
@@ -2927,6 +2905,48 @@ PlayerGetNextBlock:
 
 
 ;==============================================================================
+; RestoreVacatedTile  -  Restore GameMap cell to BLOCK_LADDER or BLOCK_EMPTY
+;
+; Called when an actor (push block, falling actor, killed actor) or player
+; vacates a tile cell in GameMap.
+;
+; Checks LevelDef_LadderMap: if the cell has a ladder tile in the ladder layer,
+; writes BLOCK_LADDER (1). Otherwise writes BLOCK_EMPTY (0).
+;
+; In:  d0.w = tile map offset (Row * WALL_PAPER_WIDTH + Col)
+;      a0   = GameMap(a5) base pointer
+; Preserves: d0, d2-d7, a0, a2-a6
+; Destroys: d1, a1
+;==============================================================================
+
+RestoreVacatedTile:
+    cmp.w       #0,d0
+    blt.s       .rvt_exit
+    cmp.w       CurrentMapSize(a5),d0
+    bge.s       .rvt_exit
+
+    move.l      CurrentLevelDef(a5),d1
+    beq.s       .rvt_empty
+    movea.l     d1,a1
+    move.l      LevelDef_LadderMap(a1),d1
+    beq.s       .rvt_empty
+    movea.l     d1,a1
+    move.w      d0,d1
+    add.w       d1,d1                   ; d1 = offset * 2 (16-bit word entries)
+    addq.w      #8,d1                   ; skip 8-byte width/height header
+    tst.w       (a1,d1.w)               ; ladder layer has a tile at this cell?
+    beq.s       .rvt_empty
+    move.b      #BLOCK_LADDER,(a0,d0.w) ; cell has ladder -> restore BLOCK_LADDER!
+    rts
+
+.rvt_empty:
+    clr.b       (a0,d0.w)               ; no ladder -> restore BLOCK_EMPTY
+
+.rvt_exit:
+    rts
+
+
+;==============================================================================
 ; PlayerUpdateOxygen  -  Update player submersion, oxygen level, and safe ground
 ;
 ; Called every active frame from GameRun (gamestatus.asm) right after
@@ -2962,6 +2982,10 @@ PlayerUpdateOxygen:
     tst.w       Player_Status(a4)
     beq         .exit                   ; player not active
 
+    ; If player is already dying (ACTION_DEATH), skip oxygen updates during death animation
+    cmp.w       #ACTION_DEATH,ActionStatus(a5)
+    beq         .exit
+
     ; -------------------------------------------------------------------------
     ; 1. Submersion Detection
     ; -------------------------------------------------------------------------
@@ -2984,31 +3008,53 @@ PlayerUpdateOxygen:
     ; --- Head is Underwater: Submerged ---
     move.w      #1,PlayerSubmerged(a5)
 
-    ; Drain oxygen (-1 per frame)
+    ; If player holds oxygen kit in inventory, activate upon entering water
+    tst.w       OxygenKitInventory(a5)
+    beq.s       .no_kit_activate
+    clr.w       OxygenKitInventory(a5)  ; remove from inventory (hides sprite)
+    move.w      #1,OxygenKitActive(a5)  ; activate enhanced dark-blue oxygen
+    move.w      #OXYGEN_MAX,PlayerOxygen(a5) ; 100% full breath
+.no_kit_activate:
+
+    ; Drain oxygen (-1 per frame, or half speed if OxygenKitActive)
     move.w      PlayerOxygen(a5),d3
     ble.s       .drown_trigger          ; already 0 or negative
+
+    tst.w       OxygenKitActive(a5)
+    beq.s       .drain_normal
+
+    ; Half speed: decrement only on alternate frames (TickCounter bit 0 == 0)
+    move.w      TickCounter(a5),d0
+    btst        #0,d0
+    bne.s       .check_safe_ground      ; skip decrement on odd frames
+.drain_normal:
     subq.w      #1,d3
     move.w      d3,PlayerOxygen(a5)
     bgt.s       .check_safe_ground      ; still has air
 
 .drown_trigger:
     clr.w       PlayerOxygen(a5)        ; clamp at 0
-    tst.w       PlayerDrowning(a5)
-    bne.s       .drowning_active
-    move.w      #1,PlayerDrowning(a5)   ; mark drowning active
-    move.w      #30,PlayerDrownTimer(a5) ; ~0.6s timer before respawn
-    bra.s       .check_safe_ground
-
-.drowning_active:
-    subq.w      #1,PlayerDrownTimer(a5)
-    bgt.s       .check_safe_ground      ; still flailing / timing down
-    bsr         PlayerRespawn           ; timer expired -> respawn at safe platform!
-    rts
+    ; --- Drowning: Trigger Player Death Animation Before Respawn ---
+    move.w      #ACTION_DEATH,ActionStatus(a5)
+    move.w      #PLAYER_DEATH_DURATION,PlayerDeathTimer(a5)
+    clr.w       Player_DirectionX(a4)
+    clr.w       Player_DirectionY(a4)
+    clr.w       Player_ActionCount(a4)
+    clr.w       Player_OnLadder(a4)
+    clr.w       Player_Fallen(a4)
+    clr.w       PlayerDrowning(a5)
+    clr.w       PlayerDrownTimer(a5)
+    clr.w       OxygenKitInventory(a5)
+    clr.w       OxygenKitActive(a5)
+    move.w      #PLAYER_DEATH_OFFSET,d0
+    bsr         ShowPlayer
+    bra.s       .exit
 
 .dry:
     ; --- Head is Above Water: Surfaced ---
     clr.w       PlayerSubmerged(a5)
     clr.w       PlayerDrowning(a5)
+    clr.w       OxygenKitActive(a5)     ; reset and lose oxygen kit once resurfaced
 
     ; Replenish oxygen (+OXYGEN_REFILL_RATE per frame until OXYGEN_MAX)
     move.w      PlayerOxygen(a5),d3
@@ -3074,6 +3120,22 @@ PlayerRespawn:
     rts
 
 .has_lives:
+    ; Clear player's previous presence in GameMap before searching or relocating
+    lea         GameMap(a5),a0
+
+    ; 1. Clear old (Player_X, Player_Y)
+    move.w      Player_Y(a4),d0
+    mulu        #WALL_PAPER_WIDTH,d0
+    add.w       Player_X(a4),d0
+    bsr         RestoreVacatedTile
+
+    ; 2. Also clear (Player_NextX, Player_NextY) if player was falling or mid-move
+    move.w      Player_NextY(a4),d0
+    mulu        #WALL_PAPER_WIDTH,d0
+    add.w       Player_NextX(a4),d0
+    bsr         RestoreVacatedTile
+
+.check_safe_dry:
     ; Check if stored safe platform is still dry
     move.w      PlayerSafeY(a5),d0
     lsl.w       #4,d0
@@ -3090,6 +3152,8 @@ PlayerRespawn:
     ; Relocate player to safe platform
     move.w      PlayerSafeX(a5),Player_X(a4)
     move.w      PlayerSafeY(a5),Player_Y(a4)
+    move.w      PlayerSafeX(a5),Player_NextX(a4)
+    move.w      PlayerSafeY(a5),Player_NextY(a4)
     move.w      PlayerSafePixelX(a5),Player_PixelX(a4)
     move.w      PlayerSafePixelY(a5),Player_PixelY(a4)
     clr.w       Player_XDec(a4)
@@ -3103,11 +3167,21 @@ PlayerRespawn:
     move.w      Player_BobOffset(a4),PlayerFrame(a5)
     clr.w       Player_AnimFrame(a4)
 
+    ; Mark player presence at safe platform in GameMap
+    lea         GameMap(a5),a0
+    move.w      Player_Y(a4),d0
+    mulu        #WALL_PAPER_WIDTH,d0
+    add.w       Player_X(a4),d0
+    move.b      Player_BlockId(a4),(a0,d0.w)
+
     ; Reset survival state
     move.w      #OXYGEN_MAX,PlayerOxygen(a5)
     clr.w       PlayerSubmerged(a5)
     clr.w       PlayerDrowning(a5)
     clr.w       PlayerDrownTimer(a5)
+    clr.w       OxygenKitInventory(a5)
+    clr.w       OxygenKitActive(a5)
+    move.w      #PLAYER_INVINCIBLE_DURATION,PlayerInvincibleTimer(a5)
 
     ; Center camera on respawned player
     move.w      Player_Y(a4),d1
@@ -3170,8 +3244,12 @@ FindDryPlatformAboveWater:
     subq.w      #1,d3
     mulu.w      #WALL_PAPER_WIDTH,d3
     add.w       d1,d3
-    tst.b       (a0,d3.w)
-    bne.s       .next_col               ; cell above is blocked
+    move.b      (a0,d3.w),d4
+    beq.s       .dry_air_ok
+    cmp.b       #BLOCK_PLAYERSTART,d4
+    beq.s       .dry_air_ok
+    bra.s       .next_col               ; cell above is blocked
+.dry_air_ok:
 
     ; Found dry platform! Update PlayerSafe coordinates
     move.w      d1,PlayerSafeX(a5)
@@ -3196,5 +3274,583 @@ FindDryPlatformAboveWater:
 .fail:
     POPM        d0-d4/a0
     rts
+
+
+;==============================================================================
+; PlayerCheckFriends  -  Test collision between player and animal friends
+;
+; If the player's bounding box overlaps an unrescued friend:
+;   1. Mark friend as rescued (fi_Rescued = 1)
+;   2. Increment FriendsRescuedCount(a5)
+;
+; In:  a5 = Variables base
+; Destroys: none (preserves all registers)
+;==============================================================================
+
+PlayerCheckFriends:
+    PUSHM       d0-d7/a0-a4
+
+    move.w      ActiveFriendCount(a5),d5
+    beq.s       .done_check_friends
+    subq.w      #1,d5
+
+    lea         Player(a5),a4
+    tst.w       Player_Status(a4)
+    beq.s       .done_check_friends
+
+    ; Compute Player World X: Player_X * 16 + Player_XDec
+    move.w      Player_X(a4),d0
+    lsl.w       #4,d0
+    add.w       Player_XDec(a4),d0      ; d0 = Player World X (0..319)
+
+    ; Compute Player World Y: Player_Y * 16 + Player_YDec - 8
+    move.w      Player_Y(a4),d1
+    lsl.w       #4,d1
+    add.w       Player_YDec(a4),d1
+    subq.w      #8,d1                   ; d1 = Player World Y (top of 24px sprite)
+
+    lea         ActiveFriends(a5),a1    ; a1 = ActiveFriend pointer
+
+.friend_loop:
+    tst.w       fi_Type(a1)
+    beq.s       .next_friend
+    tst.w       fi_Rescued(a1)
+    bne.s       .next_friend            ; already rescued
+
+    ; Check Horizontal Overlap: abs(PlayerX - FriendX) < 14
+    move.w      d0,d2
+    sub.w       fi_X(a1),d2
+    bpl.s       .x_pos
+    neg.w       d2
+.x_pos:
+    cmp.w       #14,d2
+    bge.s       .next_friend            ; no horizontal overlap
+
+    ; Check Vertical Overlap: abs(PlayerY - FriendY) < 18
+    move.w      d1,d3
+    sub.w       fi_Y(a1),d3
+    bpl.s       .y_pos
+    neg.w       d3
+.y_pos:
+    cmp.w       #18,d3
+    bge.s       .next_friend            ; no vertical overlap
+
+    ; --- Rescued! ---
+    move.w      #1,fi_Rescued(a1)
+    addq.w      #1,FriendsRescuedCount(a5)
+
+.next_friend:
+    lea         fi_SIZEOF(a1),a1
+    dbra        d5,.friend_loop
+
+.done_check_friends:
+    POPM        d0-d7/a0-a4
+    rts
+
+
+;==============================================================================
+; PlayerCheckOxygen  -  Check player overlap with uncollected oxygen pickups
+;
+; If the player's bounding box overlaps an uncollected oxygen refill:
+;   1. Mark bottle as collected (ox_Collected = 1)
+;   2. Refill PlayerOxygen(a5) to OXYGEN_MAX (400)
+;   3. Clear PlayerDrowning(a5) and PlayerDrownTimer(a5)
+;
+; In:  a5 = Variables base
+; Destroys: none (preserves all registers)
+;==============================================================================
+
+PlayerCheckOxygen:
+    PUSHM       d0-d7/a0-a4
+
+    move.w      ActiveOxygenCount(a5),d5
+    beq         .done_check_oxygen
+    subq.w      #1,d5
+
+    lea         Player(a5),a4
+    tst.w       Player_Status(a4)
+    beq         .done_check_oxygen
+
+    ; Compute Player World X: Player_X * 16 + Player_XDec
+    move.w      Player_X(a4),d0
+    lsl.w       #4,d0
+    add.w       Player_XDec(a4),d0      ; d0 = Player World X (0..319)
+
+    ; Compute Player World Y: Player_Y * 16 + Player_YDec - 8
+    move.w      Player_Y(a4),d1
+    lsl.w       #4,d1
+    add.w       Player_YDec(a4),d1
+    subq.w      #8,d1                   ; d1 = Player World Y top (24px sprite)
+
+    lea         ActiveOxygen(a5),a1     ; a1 = ActiveOxygen pointer
+
+.ox_loop:
+    tst.w       ox_Collected(a1)
+    bne.s       .next_ox                ; already collected
+
+    ; Check Horizontal Overlap: abs(PlayerX - ox_X) < 16
+    move.w      d0,d2
+    sub.w       ox_X(a1),d2
+    bpl.s       .x_pos
+    neg.w       d2
+.x_pos:
+    cmp.w       #16,d2
+    bge.s       .next_ox                ; no horizontal overlap
+
+    ; Check Vertical Overlap: abs(PlayerY - ox_Y) < 18
+    move.w      d1,d3
+    sub.w       ox_Y(a1),d3
+    bpl.s       .y_pos
+    neg.w       d3
+.y_pos:
+    cmp.w       #18,d3
+    bge.s       .next_ox                ; no vertical overlap
+
+    ; --- Oxygen Refill Picked Up! ---
+    move.w      #1,ox_Collected(a1)
+    move.w      #OXYGEN_MAX,PlayerOxygen(a5)
+    clr.w       PlayerDrowning(a5)
+    clr.w       PlayerDrownTimer(a5)
+
+    ; If player is currently submerged / underwater, activate immediately
+    tst.w       PlayerSubmerged(a5)
+    bne.s       .ox_underwater
+
+    ; Outside water: store in inventory (shows hardware sprite)
+    move.w      #1,OxygenKitInventory(a5)
+    clr.w       OxygenKitActive(a5)
+    bra.s       .next_ox
+
+.ox_underwater:
+    ; Underwater: activate enhanced dark-blue oxygen immediately at 100%
+    clr.w       OxygenKitInventory(a5)
+    move.w      #1,OxygenKitActive(a5)
+
+.next_ox:
+    lea         ox_SIZEOF(a1),a1
+    dbra        d5,.ox_loop
+
+.done_check_oxygen:
+    POPM        d0-d7/a0-a4
+    rts
+
+
+;==============================================================================
+; PlayerStartAttack  -  Initiate cane swing attack animation
+;
+; In: a4 = Player struct pointer
+;     a5 = Variables base
+;==============================================================================
+
+PlayerStartAttack:
+    move.w      #ACTION_ATTACK,ActionStatus(a5)
+    move.w      #ATTACK_DURATION,PlayerAttackTimer(a5)
+
+    ; Select initial wind-up cel (Frame 0: overhead cane)
+    move.w      #PLAYER_ATTACK_OFFSET,d0        ; base attack (8)
+    bsr         ShowPlayer
+    rts
+
+
+;==============================================================================
+; ActionAttack  -  Cane swing animation & hitbox state handler (ACTION_ATTACK)
+;
+; Timing:
+;   ATTACK_DURATION = 12
+;   Ticks 11..10 (2 frames): Wind-up overhead (Cel 0, frame 8)
+;   Ticks  9..5  (5 frames): Full strike forward (Cel 1, frame 9) [Active hit check]
+;   Ticks  4..2  (3 frames): Follow-through downward arc (Cel 2, frame 10) [Active hit check]
+;   Tick   1     (1 frame):  Recovery / return cane (Cel 3, frame 11)
+;   Tick   0:                Returns to ACTION_IDLE
+;
+; Responsive chaining: if Fire is pressed during ticks 2..1, immediately
+; starts a fresh attack swing.
+;==============================================================================
+
+ActionAttack:
+    ; Allow attack chaining near end of swing (recovery window)
+    move.w      PlayerAttackTimer(a5),d1
+    cmp.w       #2,d1
+    bgt.s       .no_chain
+    btst        #CONTROLB_FIRE,ControlsTrigger(a5)
+    bne         PlayerStartAttack
+.no_chain:
+
+    subq.w      #1,PlayerAttackTimer(a5)
+    ble.s       .attack_done
+
+    move.w      PlayerAttackTimer(a5),d1
+
+    cmp.w       #10,d1
+    bge.s       .windup                 ; ticks 11..10: Cel 0 (overhead wind-up)
+
+    cmp.w       #5,d1
+    bge.s       .strike                 ; ticks 9..5: Cel 1 (extended strike)
+
+    cmp.w       #2,d1
+    bge.s       .followthrough          ; ticks 4..2: Cel 2 (follow-through)
+
+.recovery:
+    ; Tick 1: Cel 3 (pulling cane back)
+    moveq       #3,d0
+    bra.s       .show
+
+.followthrough:
+    ; Active hit window continues through downward sweep!
+    bsr         PlayerCheckAttackHit
+    moveq       #2,d0
+    bra.s       .show
+
+.strike:
+    ; Active hit window on every frame of forward extension!
+    bsr         PlayerCheckAttackHit
+    moveq       #1,d0
+    bra.s       .show
+
+.windup:
+    moveq       #0,d0
+
+.show:
+    add.w       #PLAYER_ATTACK_OFFSET,d0
+    bsr         ShowPlayer
+    rts
+
+.attack_done:
+    move.w      #ACTION_IDLE,ActionStatus(a5)
+    clr.w       PlayerAttackTimer(a5)
+    bsr         PlayerShowIdleAnim
+    rts
+
+
+;==============================================================================
+; PlayerCheckAttackHit  -  Test cane hitbox against all active enemies
+;
+; Cane reaches reliably in front of the player's 24px body.
+; If hitbox overlaps an enemy, that enemy is stunned for ENEMY_STUN_DURATION (200).
+;
+; In:  a4 = Player struct pointer
+;      a5 = Variables base
+; Preserves all registers.
+;==============================================================================
+
+PlayerCheckAttackHit:
+    PUSHM       d0-d7/a0-a4
+
+    move.w      ActiveEnemyCount(a5),d7
+    beq         .done_attack_hit
+    subq.w      #1,d7
+
+    ; Player World X: Player_X * 16 + Player_XDec
+    move.w      Player_X(a4),d0
+    lsl.w       #4,d0
+    add.w       Player_XDec(a4),d0          ; d0 = Player World X
+
+    ; Player World Y: Player_Y * 16 + Player_YDec - 8
+    move.w      Player_Y(a4),d1
+    lsl.w       #4,d1
+    add.w       Player_YDec(a4),d1
+    subq.w      #8,d1                       ; d1 = Player World Y
+
+    ; Calculate cane horizontal bounds [d2 .. d3]:
+    ; Right facing (+1): X+4 to X+21 (stuns at distance 20, 9px body-to-body gap)
+    ; Left facing  (-1): X-5 to X+12 (stuns at distance 20, 9px body-to-body gap)
+    tst.w       Player_Facing(a4)
+    bmi.s       .hitbox_left
+
+    ; Facing Right:
+    move.w      d0,d2
+    addq.w      #4,d2                       ; Cane Left = WorldX + 4
+    move.w      d0,d3
+    add.w       #21,d3                      ; Cane Right = WorldX + 21 (hits at ei_X <= WorldX + 20)
+    bra.s       .hitbox_y
+
+.hitbox_left:
+    ; Facing Left:
+    move.w      d0,d2
+    subq.w      #5,d2                       ; Cane Left = WorldX - 5 (hits at ei_X >= WorldX - 20)
+    move.w      d0,d3
+    add.w       #12,d3                      ; Cane Right = WorldX + 12
+
+.hitbox_y:
+    ; Vertical bounds [d4 .. d5]: WorldY + 2 to WorldY + 24
+    move.w      d1,d4
+    addq.w      #2,d4                       ; Cane Top = WorldY + 2
+    move.w      d1,d5
+    add.w       #24,d5                      ; Cane Bottom = WorldY + 24
+
+    lea         ActiveEnemies(a5),a1
+
+.enemy_hit_loop:
+    tst.w       ei_Type(a1)
+    beq.s       .next_enemy_hit
+
+    ; Already stunned: cannot be stunned again until fully recovered!
+    tst.w       ei_StunTimer(a1)
+    bne.s       .next_enemy_hit
+
+    ; Enemy bounding box: [ei_X .. ei_X+16], [ei_Y .. ei_Y+16]
+    move.w      ei_X(a1),d0                 ; Enemy Left
+    move.w      d0,d1
+    add.w       #16,d1                      ; Enemy Right = ei_X + 16
+
+    ; Overlap test X: (Cane Left < Enemy Right) AND (Cane Right > Enemy Left)
+    cmp.w       d1,d2
+    bge.s       .next_enemy_hit             ; Cane Left >= Enemy Right -> no overlap
+    cmp.w       d0,d3
+    ble.s       .next_enemy_hit             ; Cane Right <= Enemy Left -> no overlap
+
+    ; Overlap test Y: (Cane Top < Enemy Bottom) AND (Cane Bottom > Enemy Top)
+    move.w      ei_Y(a1),d0                 ; Enemy Top
+    move.w      d0,d1
+    add.w       #16,d1                      ; Enemy Bottom = ei_Y + 16
+
+    cmp.w       d1,d4
+    bge.s       .next_enemy_hit             ; Cane Top >= Enemy Bottom -> no overlap
+    cmp.w       d0,d5
+    ble.s       .next_enemy_hit             ; Cane Bottom <= Enemy Top -> no overlap
+
+    ; --- Cane Connected! Stun the Enemy! ---
+    move.w      #ENEMY_STUN_DURATION,ei_StunTimer(a1)
+
+.next_enemy_hit:
+    lea         ei_SIZEOF(a1),a1
+    dbra        d7,.enemy_hit_loop
+
+.done_attack_hit:
+    POPM        d0-d7/a0-a4
+    rts
+
+
+;==============================================================================
+; PlayerCheckEnemies  -  Test player collision against all active enemies
+;
+; - If enemy is stunned (ei_StunTimer > 0): SAFE PASSAGE! (ignored, no damage)
+; - If enemy is active (ei_StunTimer == 0): LETHAL CONTACT!
+;   Triggers ACTION_DEATH collapse animation and loss of life.
+;
+; In: a5 = Variables base
+; Preserves all registers.
+;==============================================================================
+
+PlayerCheckEnemies:
+    PUSHM       d0-d7/a0-a4
+
+    ; Do not check lethal contact if already dying or inactive
+    cmp.w       #ACTION_DEATH,ActionStatus(a5)
+    beq         .done_check_enemies
+
+    ; Invulnerable on respawn: safe from all enemy damage!
+    tst.w       PlayerInvincibleTimer(a5)
+    bne         .done_check_enemies
+
+    move.w      ActiveEnemyCount(a5),d7
+    beq         .done_check_enemies
+    subq.w      #1,d7
+
+    lea         Player(a5),a4
+    tst.w       Player_Status(a4)
+    beq         .done_check_enemies
+
+    ; Player World X: Player_X * 16 + Player_XDec
+    move.w      Player_X(a4),d0
+    lsl.w       #4,d0
+    add.w       Player_XDec(a4),d0          ; d0 = Player World X
+
+    ; Player World Y: Player_Y * 16 + Player_YDec - 8
+    move.w      Player_Y(a4),d1
+    lsl.w       #4,d1
+    add.w       Player_YDec(a4),d1
+    subq.w      #8,d1                       ; d1 = Player World Y
+
+    ; Player snug hitbox:
+    ; Left = WorldX + 2, Right = WorldX + 14
+    ; Top  = WorldY + 4, Bottom = WorldY + 22
+    move.w      d0,d2
+    addq.w      #2,d2                       ; d2 = Player Left
+    move.w      d0,d3
+    add.w       #14,d3                      ; d3 = Player Right
+
+    move.w      d1,d4
+    addq.w      #4,d4                       ; d4 = Player Top
+    move.w      d1,d5
+    add.w       #22,d5                      ; d5 = Player Bottom
+
+    lea         ActiveEnemies(a5),a1
+
+.enemy_contact_loop:
+    tst.w       ei_Type(a1)
+    beq.s       .next_contact
+
+    ; Safe passage: if stunned, lethal collision is deactivated!
+    tst.w       ei_StunTimer(a1)
+    bne.s       .next_contact
+
+    ; Active enemy: test overlap
+    move.w      ei_X(a1),d0
+    addq.w      #2,d0                       ; Enemy Left = ei_X + 2
+    move.w      ei_X(a1),d1
+    add.w       #14,d1                      ; Enemy Right = ei_X + 14
+
+    cmp.w       d1,d2
+    bge.s       .next_contact               ; Player Left >= Enemy Right
+    cmp.w       d0,d3
+    ble.s       .next_contact               ; Player Right <= Enemy Left
+
+    move.w      ei_Y(a1),d0
+    addq.w      #2,d0                       ; Enemy Top = ei_Y + 2
+    move.w      ei_Y(a1),d1
+    add.w       #14,d1                      ; Enemy Bottom = ei_Y + 14
+
+    cmp.w       d1,d4
+    bge.s       .next_contact               ; Player Top >= Enemy Bottom
+    cmp.w       d0,d5
+    ble.s       .next_contact               ; Player Bottom <= Enemy Top
+
+    ; --- Lethal Enemy Contact! ---
+    move.w      #ACTION_DEATH,ActionStatus(a5)
+    move.w      #PLAYER_DEATH_DURATION,PlayerDeathTimer(a5)
+    clr.w       Player_DirectionX(a4)
+    clr.w       Player_DirectionY(a4)
+    clr.w       Player_ActionCount(a4)
+    move.w      #PLAYER_DEATH_OFFSET,d0
+    bsr         ShowPlayer
+    bra.s       .done_check_enemies
+
+.next_contact:
+    lea         ei_SIZEOF(a1),a1
+    dbra        d7,.enemy_contact_loop
+
+.done_check_enemies:
+    POPM        d0-d7/a0-a4
+    rts
+
+
+;==============================================================================
+; ActionDeath  -  Player collapse / death animation handler (ACTION_DEATH)
+;
+; Cycles through the 4-cel collapse animation (frames 44..47) then respawns.
+;==============================================================================
+
+ActionDeath:
+    subq.w      #1,PlayerDeathTimer(a5)
+    ble.s       .death_complete
+
+    move.w      PlayerDeathTimer(a5),d1
+
+    ; 48..37: frame 44 (slumped)
+    ; 36..25: frame 45 (buckling)
+    ; 24..13: frame 46 (falling)
+    ; 12..1 : frame 47 (collapsed flat)
+    moveq       #3,d0
+    cmp.w       #12,d1
+    ble.s       .show_death
+    moveq       #2,d0
+    cmp.w       #24,d1
+    ble.s       .show_death
+    moveq       #1,d0
+    cmp.w       #36,d1
+    ble.s       .show_death
+    moveq       #0,d0
+
+.show_death:
+    add.w       #PLAYER_DEATH_OFFSET,d0
+    bsr         ShowPlayer
+    rts
+
+.death_complete:
+    clr.w       PlayerDeathTimer(a5)
+    bsr         PlayerRespawn
+    rts
+
+
+;==============================================================================
+; PlayerInitFlippedSprites  -  Generate left-facing player BOBs at startup
+;
+; Amiga blitter lacks a horizontal bit-reversal mode. To eliminate 50% of the
+; asset footprint (only 24 sprites stored in PlayerRaw/PlayerMsk), this routine
+; horizontally mirrors the 24 frames of PlayerRaw, PlayerMsk, and PlayerWhiteRaw
+; into PlayerLeftRaw, PlayerLeftMsk, and PlayerLeftWhiteRaw in Chip RAM.
+;
+; In:  none (runs once at game startup)
+; Destroys: d0-d7, a0-a3
+;==============================================================================
+
+PlayerInitFlippedSprites:
+    PUSHM       d0-d7/a0-a3
+
+    ; Allocate 256-byte bit-reversal table on stack
+    lea         -256(sp),sp
+    movea.l     sp,a2                   ; a2 = BitReverseTable
+
+    ; Generate 256-entry bit-reversal table:
+    ; Entry i contains byte i with bits 0..7 reversed
+    clr.w       d0
+.pifs_table_gen:
+    clr.b       d1
+    move.b      d0,d2
+    lsr.b       #1,d2
+    roxl.b      #1,d1
+    lsr.b       #1,d2
+    roxl.b      #1,d1
+    lsr.b       #1,d2
+    roxl.b      #1,d1
+    lsr.b       #1,d2
+    roxl.b      #1,d1
+    lsr.b       #1,d2
+    roxl.b      #1,d1
+    lsr.b       #1,d2
+    roxl.b      #1,d1
+    lsr.b       #1,d2
+    roxl.b      #1,d1
+    lsr.b       #1,d2
+    roxl.b      #1,d1
+    move.b      d1,(a2,d0.w)
+    addq.b      #1,d0
+    bne.s       .pifs_table_gen
+
+    ; 1. Flip Mask: PlayerMsk -> PlayerLeftMsk
+    lea         PlayerMsk,a0
+    lea         PlayerLeftMsk,a1
+    bsr.s       .pifs_flip_stream
+
+    ; 2. Flip Graphic: PlayerRaw -> PlayerLeftRaw
+    lea         PlayerRaw,a0
+    lea         PlayerLeftRaw,a1
+    bsr.s       .pifs_flip_stream
+
+    ; 3. Flip White Flash: PlayerWhiteRaw -> PlayerLeftWhiteRaw
+    lea         PlayerWhiteRaw,a0
+    lea         PlayerLeftWhiteRaw,a1
+    bsr.s       .pifs_flip_stream
+
+    ; Deallocate stack table
+    lea         256(sp),sp
+    POPM        d0-d7/a0-a3
+    rts
+
+.pifs_flip_stream:
+    ; a0 = Source, a1 = Dest, a2 = BitReverseTable
+    ; 144 scanlines * 4 bitplanes = 576 plane lines
+    move.w      #(144*PLAYER_PLANES)-1,d7
+.pifs_line_loop:
+    moveq       #4-1,d6                 ; 4 cels of 32px per plane line (16 bytes)
+.pifs_cel_loop:
+    moveq       #0,d0
+    moveq       #0,d1
+    moveq       #0,d2
+    move.b      (a0)+,d0                ; Old Byte 0 (pixels 0..7)
+    move.b      (a0)+,d1                ; Old Byte 1 (pixels 8..15)
+    move.b      (a0)+,d2                ; Old Byte 2 (pixels 16..23)
+    addq.l      #1,a0                   ; Skip Old Byte 3 (pixels 24..31 padding)
+
+    ; Reverse bits to flip 24-pixel cel horizontally:
+    move.b      (a2,d2.w),(a1)+         ; New Byte 0 = reverse(Old Byte 2)
+    move.b      (a2,d1.w),(a1)+         ; New Byte 1 = reverse(Old Byte 1)
+    move.b      (a2,d0.w),(a1)+         ; New Byte 2 = reverse(Old Byte 0)
+    clr.b       (a1)+                   ; New Byte 3 = 0 (padding)
+    dbra        d6,.pifs_cel_loop
+    dbra        d7,.pifs_line_loop
+    rts
+
 
 

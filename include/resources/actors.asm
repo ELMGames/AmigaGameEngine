@@ -237,7 +237,33 @@ InitEnemyFall:
 
 InitPushBlock:
     bsr         GetActorSlot
-    move.w      #TILE_PUSH,Actor_SpriteOffset(a3)          ; push block sprite
+    move.w      #TILE_PUSH,d0              ; default tile index (37)
+
+    ; Check if CurrentLevelDef has LevelDef_BlockList:
+    move.l      CurrentLevelDef(a5),d4
+    beq.s       .use_sprite
+    movea.l     d4,a4
+    move.l      LevelDef_BlockList(a4),d4
+    beq.s       .use_sprite
+    movea.l     d4,a4                      ; a4 -> BlockList: Col (w), Row (w), Sprite (w), Res (w)
+
+.scan_block_list:
+    move.w      (a4),d4                    ; Col
+    cmp.w       #$ffff,d4                  ; End of list?
+    beq.s       .use_sprite
+    cmp.w       Actor_X(a3),d4
+    bne.s       .next_entry
+    cmp.w       2(a4),d2                   ; Row matches? (d2 is Row in InitPushBlock)
+    bne.s       .next_entry
+    move.w      4(a4),d0                   ; Sprite index from BlockList!
+    bra.s       .use_sprite
+
+.next_entry:
+    addq.l      #8,a4                      ; 8 bytes per record
+    bra.s       .scan_block_list
+
+.use_sprite:
+    move.w      d0,Actor_SpriteOffset(a3)  ; push block sprite (e.g. 37 for crate)
     move.w      #1,Actor_CanFall(a3)       ; push blocks fall under gravity
     move.w      #1,Actor_Static(a3)        ; static appearance (not animated)
     rts
@@ -283,14 +309,14 @@ InitCocoon:
 
 InitPlayer:
     lea         Player(a5),a4              ; a4 -> Player structure
-    move.w      #48,Player_BobOffset(a4)        ; default: Dr. Price (frame 48)
-    move.w      #31,Player_FrozenBobBase(a4)    ; frozen BOB pose
-    move.w      #34,Player_LadderFreezeId(a4)   ; ladder freeze frame index
+    clr.w       Player_BobOffset(a4)            ; 24-sprite unified sheet (frame 0..23)
+    move.w      #20,Player_FrozenBobBase(a4)    ; frozen BOB pose (fall frame 20)
+    move.w      #PLAYER_LADDER_IDLE,Player_LadderFreezeId(a4)   ; ladder freeze frame index
     tst.w       SelectedPlayer(a5)
     beq.s       .init_ids
-    clr.w       Player_BobOffset(a4)            ; Sgt. Cole (frame 0)
-    move.w      #29,Player_FrozenBobBase(a4)
-    move.w      #33,Player_LadderFreezeId(a4)
+    clr.w       Player_BobOffset(a4)
+    move.w      #20,Player_FrozenBobBase(a4)
+    move.w      #PLAYER_LADDER_IDLE,Player_LadderFreezeId(a4)
 
 .init_ids:
     move.b      #BLOCK_PLAYERSTART,Player_BlockId(a4)    ; map cell type for Player's presence
@@ -358,6 +384,8 @@ GetActorSlot:
     ; Initialise core fields
     move.w      d1,Actor_X(a3)             ; tile column
     move.w      d2,Actor_Y(a3)             ; tile row
+    move.w      d1,Actor_PrevX(a3)         ; initial prev column = current column
+    move.w      d2,Actor_PrevY(a3)         ; initial prev row = current row
     move.w      d3,Actor_Type(a3)          ; block type
 
     ; Cache pixel positions: X * 16 (TILE_WIDTH), Y * 16 (TILE_GRID_HEIGHT)
@@ -421,79 +449,24 @@ ACTOR_POOL_OVERFLOW:
 
 DrawStaticActors:
     move.w      ActorCount(a5),d7
-    bne         .go
+    bne.s       .go
     rts
 
-.go
-    PUSHM       a4                         ; a4 used for TileMask (a2=ActorList in use)
+.go:
     subq.w      #1,d7
     lea         ActorList(a5),a2
 
-    ; Write constant blitter registers once for the entire actor batch.
-    ; PasteTile always uses BLTAFWM=-1, BLTAMOD=0, BLTBMOD=0,
-    ; BLTCMOD/BLTDMOD=TILE_BLT_MOD.  These don't change between actors.
-    WAITBLIT
-    move.l      #-1,BLTAFWM(a6)
-    move.w      #0,BLTAMOD(a6)
-    move.w      #0,BLTBMOD(a6)
-    move.w      #TILE_BLT_MOD,BLTCMOD(a6)
-    move.w      #TILE_BLT_MOD,BLTDMOD(a6)
-
-.loop
+.loop:
     move.l      (a2)+,a3                   ; a3 -> actor struct (live, via ActorList)
+    tst.w       Actor_Status(a3)
+    beq.s       .next
     tst.w       Actor_Dirty(a3)
-    beq         .next
+    beq.s       .next
 
-.normal_blit
-    ; Pre-compute blit parameters (CPU work overlaps previous blit's DMA)
-    move.l      TilesetPtr(a5),a0
-    lea         TileMask,a4
+    bsr         ActorDrawStatic
 
-    moveq       #0,d0
-    move.w      Actor_SpriteOffset(a3),d0
-    mulu        #TILE_SIZE,d0
-    add.l       d0,a0                      ; a0 -> tile graphic
-    add.l       d0,a4                      ; a4 -> tile mask
-
-    ; Load pixel X and calculate viewport-relative pixel Y
-    move.w      Actor_X(a3),d0
-    lsl.w       #4,d0                      ; d0 = pixel X
-    move.w      Actor_Y(a3),d1
-    sub.w       TilemapScreenOffset(a5),d1 ; relative row in visible viewport
-    bmi.s       .actor_offscreen           ; above viewport -> skip
-    cmp.w       #TILEMAP_VIEW_ROWS,d1
-    bge.s       .actor_offscreen           ; below viewport -> skip
-    lsl.w       #4,d1                      ; d1 = pixel Y = rel_row * 16
-
-    ; Destination address
-    lea         DisplayScreen,a1
-    mulu        #SCREEN_STRIDE,d1
-    move.w      d0,d2
-    asr.w       #3,d2                      ; byte column = pixel_X / 8
-    add.w       d2,d1
-    add.l       d1,a1                      ; a1 -> dest pixel
-
-    ; BLTCON0/BLTCON1: X mod 16 packed into shift field
-    and.w       #$f,d0
-    ror.w       #4,d0
-    move.w      d0,d2
-    or.w        #$fca,d0                   ; minterm $fca = masked copy
-
-    WAITBLIT
-    move.w      d0,BLTCON0(a6)
-    move.w      d2,BLTCON1(a6)
-    move.l      a4,BLTAPT(a6)              ; A = tile mask
-    move.l      a0,BLTBPT(a6)              ; B = tile graphic
-    move.l      a1,BLTCPT(a6)              ; C/D = screen dest
-    move.l      a1,BLTDPT(a6)
-    move.w      #TILE_BLT_SIZE,BLTSIZE(a6) ; start blit
-
-    clr.w       Actor_Dirty(a3)
-
-.actor_offscreen
-.next
+.next:
     dbra        d7,.loop
-    POPM        a4
     rts
 
 

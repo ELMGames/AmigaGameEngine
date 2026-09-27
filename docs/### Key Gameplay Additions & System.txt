@@ -1,0 +1,63 @@
+ ### Key Gameplay Additions & System Breakdown
+
+  #### 1. Core Goal & Summit Escape Ladder
+
+  • Rescue All Stranded Animals: The primary objective on each 20$\times$42 vertical level is to rescue all small
+  animals (rabbits, puppies, kittens) before the flood submerges them.
+  • Conditional Summit Ladder: The exit ladder leading out through the ceiling (Row 0) is strictly invisible and
+  inactive at the start. Only when the final animal is collected does a victory chime play and the exit ladder extend
+  down from the summit hatch.
+  • Implicit Timer: The rising water line (WaterPixelY) creates continuous pressure—you must collect all animals and
+  climb the summit ladder before the flood reaches the top.
+  ──────
+  #### 2. Cane Attack & Enemy Stun System
+
+  • Walking Cane Attack: Triggered via Spacebar (or Joy 2nd Fire / Down + Fire), using the 3-frame swinging animation
+  from Row 7 of the player spritesheet.
+  • Stun Duration & Safe Passage:
+      • Striking a patrolling enemy (Slime, Snail, Wasp, Bat) stuns it for ~4.0 seconds.
+      • The enemy freezes with a dizzy animation, and its lethal collision is disabled: the player can safely walk or
+      climb right past it.
+      • Visual Warning: During the final 1.5 seconds of the stun, the enemy rapidly flashes pure white ($0FFF),
+      warning the player that it is about to recover and resume its patrol.
+  • Lethal Contact: Touching an active (unstunned) enemy triggers the player's collapse/death animation (Rows 6 & 9
+  cels) and respawns them on the nearest dry platform above water.
+  ──────
+  #### 3. Context-Sensitive Vertical OXY Gauge (SPR4)
+
+  • Hidden on Dry Land: The 16$\times$28 vertical OXY gauge in Column 1 (X = 16) remains completely hidden while the
+  player is on dry platforms, keeping the screen clean.
+  • Underwater Reveal: As soon as the player's mouth submerges (Y ≥ WaterPixelY), SPR4 smoothly appears and begins
+  draining its 20 scanlines (8.0s total).
+  • High-Stakes Dives: Enables deliberate dives into flooded lower sumps to rescue trapped animals before surfacing.
+  • Low-Oxygen Alert: Pulses warning red when 5 scanlines remain (≤ 100 units / ∼ 2.0s).
+  ──────
+  #### 4. Animal Counter HUD (SPR0)
+
+  • HUD Repurposing: Replaces the generic lives badge in Column 2 (X = 36, Y = 4).
+  • Display: Shows a 16$\times$9 animal silhouette icon + remaining animal count digit:
+
+    [Animal Icon] × 4 ⟶ 3 ⟶ 2 ⟶ 1 ⟶ 0
+
+  • Hitting 0 flashes gold and spawns the summit exit ladder.
+  ──────
+  #### 5. Block Pushing & Vertical Backtracking Loops
+
+  • Puzzle Actions:
+      1. Bridge Gaps: Push blocks off ledges into chasms/water to bridge paths to stranded animals.
+      2. Pressure Plates ([■]): Push heavy blocks onto floor switches to trigger ceiling counterweights that drop
+      retracted ladders.
+      3. Crush Enemies: Drop blocks from catwalks to crush patrolling crawlers below.
+      4. Step-Up Stool: Push a block against a high ledge to gain the extra tile of height needed to grab a ladder.
+  • Loop-Back Design: Climb up to solve an upper push-block puzzle, descend back down to rescue an animal on a newly
+  bridged ledge as floodwaters rise, then race back to the summit.
+  ──────
+  #### 6. Multi-Level Campaign Structure
+
+  1. Level 1: The Old Mill & Cellars (Four Seasons / Amber): 3 bunnies, basic block pushes, slime stunning, slow
+  water rise.
+  2. Level 2: The Storm Drainage Sump (Industrial Steel): 4 puppies, crushing snails with falling drums, bat dodging,
+  vertical backtrack loop.
+  3. Level 3: The Sunken Aqueduct (Clean Cyber): 5 kittens, deliberate underwater dives, floating crate bridges.
+  4. Level 4: The Research Facility Flooding (Biomech / Reactor Core): 6 exotic lab pets, surging floodwaters, tight
+  8-second dive, final dash up the summit ladder.

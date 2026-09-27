@@ -2,24 +2,37 @@
 """
 tools/convert_player_bob.py
 ---------------------------
-Converts assets/graphics/sprites/player-animation-16x24.png (64x288 RGBA)
-into 4-bitplane interleaved raw graphics and mask files for Blitter Objects (BOBs):
-  - assets/graphics/sprites/player_bobs_64x576.raw (18,432 bytes, 96 frames)
-  - assets/graphics/sprites/player_bobs_64x576.msk (18,432 bytes, 96 frames)
+Generates the 24-sprite player master spritesheet and converts it into
+4-bitplane interleaved raw graphics, mask, and pure-white flash files for Blitter Objects (BOBs):
+  - assets/graphics/sprites/player_master_128x144.png (Reference PNG)
+  - assets/graphics/sprites/player_bobs_128x144.raw (9,216 bytes, 24 frames)
+  - assets/graphics/sprites/player_bobs_128x144.msk (9,216 bytes, 24 frames)
+  - assets/graphics/sprites/player_bobs_128x144_white.raw (9,216 bytes, 24 frames)
+  - assets/graphics/sprites/player_bobs_preview.png (Visual contact sheet)
 
-Layout:
-  Width:  64 pixels (4 frames x 16 pixels) = 4 words = 8 bytes per plane.
-  Height: 576 scanlines (24 rows x 24 scanlines).
-          Rows  0..11: Player 1 / Cole (Frames  0..47)
-          Rows 12..23: Player 2 / Price (Frames 48..95)
+Layout (24 sprites in total, 6 rows x 4 frames):
+  Row 0 (frames  0..3 ): IDLE (facing right)
+  Row 1 (frames  4..7 ): WALK (facing right)
+  Row 2 (frames  8..11): ATTACK (facing right, with full extended cane hook)
+  Row 3 (frames 12..15): DEATH (facing right, Row 9 collapse sequence)
+  Row 4 (frames 16..19): UP/DOWN LADDER (rear view climb sequence)
+  Row 5 (frames 20..23): FALLING (flailing fall sequence)
+
+Left-facing sprites are generated / flipped dynamically at runtime in the Amiga engine,
+cutting asset memory down to 24 sprites.
+
+Format:
+  Width:  128 pixels (4 frames x 32 pixels cell storage, 24px active content)
+          = 8 words = 16 bytes per plane row.
+  Height: 144 scanlines (6 rows x 24 scanlines).
   Format: 4-bitplane interleaved:
-          Scanline Y: Plane 0 (8B), Plane 1 (8B), Plane 2 (8B), Plane 3 (8B) = 32 bytes/row.
-  Total size: 576 * 32 = 18,432 bytes.
+          Scanline Y: Plane 0 (16B), Plane 1 (16B), Plane 2 (16B), Plane 3 (16B) = 64 bytes/row.
+  Total size: 144 * 64 = 9,216 bytes.
 """
 
 import sys
 from pathlib import Path
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -45,17 +58,18 @@ PALETTE_OCS = [
 
 PAL_8BIT = [(r * 17, g * 17, b * 17) for r, g, b in PALETTE_OCS]
 
-W, H = 16, 24
+W, H = 24, 24
+CELL_W = 32
 
 
-class Cel16:
-    """16x24 pixel grid with color indices 0..15."""
+class Cel24:
+    """24x24 pixel grid with color indices 0..15."""
     def __init__(self):
         self.g = [[0] * W for _ in range(H)]
 
     def mirror(self):
-        """Horizontal flip (facing left)."""
-        m = Cel16()
+        """Horizontal flip (facing opposite direction)."""
+        m = Cel24()
         for y in range(H):
             for x in range(W):
                 m.g[y][W - 1 - x] = self.g[y][x]
@@ -86,7 +100,7 @@ def quantize_pixel(r: int, g: int, b: int, a: int) -> int:
     if r > 210 and g > 210 and b > 210:
         return 3   # 0xFFF White highlight
 
-    # 5. Boots / Earth:
+    # 5. Boots / Earth / Cane wood:
     if r > 80 and g > 50 and b < 50:
         return 10  # 0xB74 Stone / Earth
 
@@ -114,201 +128,282 @@ def quantize_pixel(r: int, g: int, b: int, a: int) -> int:
 
 
 def load_cels_from_sheet(sheet_path: Path):
-    """Load the 4x12 cells from the 16x24 packed spritesheet."""
+    """
+    Load the 4x12 cells from player-animation-20x24.png and expand to 24x24 cels.
+    Completes the cane hook artwork in attack cels (Row 7, Cels 0 & 1).
+    """
     img = Image.open(sheet_path).convert('RGBA')
     cels = {}
     for r in range(12):
         for c in range(4):
-            cel = Cel16()
-            for y in range(H):
-                for x in range(W):
-                    p = img.getpixel((c * W + x, r * H + y))
-                    cel.g[y][x] = quantize_pixel(p[0], p[1], p[2], p[3])
+            cel = Cel24()
+            # Default offset: shift 20px art right by 2 to center 14px body in 24px cel
+            ox = 2
+            if r == 7 and c in (0, 1):
+                # Attack strike cels: shift right by 4 so cane hook has 4 pixels on the left
+                ox = 4
+
+            for y in range(24):
+                for x in range(20):
+                    p = img.getpixel((c * 20 + x, r * 24 + y))
+                    cel.g[y][ox + x] = quantize_pixel(p[0], p[1], p[2], p[3])
+
+            # Complete the curved cane handle hook for strike cels:
+            if r == 7 and c in (0, 1):
+                # Scanline 4: top curve dark outline (x=1..4)
+                cel.g[4][1] = 2
+                cel.g[4][2] = 2
+                cel.g[4][3] = 2
+                cel.g[4][4] = 2
+                # Scanline 5: curve loop on left (outline 2, wood 10)
+                cel.g[5][0] = 2
+                cel.g[5][1] = 10
+                cel.g[5][2] = 10
+                cel.g[5][3] = 10
+                # Scanline 6: hook tip pointing down
+                cel.g[6][0] = 2
+                cel.g[6][1] = 10
+                cel.g[6][2] = 2
+                cel.g[6][3] = 2
+                # Scanline 7: rounded tip outline
+                cel.g[7][1] = 2
+
             cels[(r, c)] = cel
     return cels
 
 
-def assemble_player_frames(cels):
+def assemble_24_player_frames(cels):
     """
-    Assemble the 48 animation frames for a player character according to
-    Amiga engine constants (const.asm):
-      0..3   : Idle right (4 frames, faces right)
-      4..11  : Walk right (8 frames, walks right)
-      12..15 : Carry right (4 frames)
-      16..19 : Ladder climb (4 frames, rear view; 16 is ladder idle neutral)
-      20..21 : Push right (2 frames)
-      22..23 : Push left (2 frames)
-      24..27 : Slide / dash (4 frames)
-      28..31 : Falling (2 alternating frames)
-      32..35 : Idle left (4 frames, faces left)
-      36..43 : Walk left (8 frames, walks left)
-      44..47 : Fall left (4 frames, mirror of 28..31)
+    Assemble exactly 24 animation frames for the player (6 rows x 4 frames):
+      Row 0 (frames  0..3 ): IDLE (facing right)
+      Row 1 (frames  4..7 ): WALK (facing right)
+      Row 2 (frames  8..11): ATTACK (facing right)
+      Row 3 (frames 12..15): DEATH (facing right)
+      Row 4 (frames 16..19): UP/DOWN LADDER (climb sequence)
+      Row 5 (frames 20..23): FALLING
     """
-    frames = [Cel16() for _ in range(48)]
+    frames = [Cel24() for _ in range(24)]
 
-    # 0..3: Idle right (mirrored Row 0, faces right)
+    # Row 0 (0..3): Idle right (Row 0 cels mirrored)
     for c in range(4):
         frames[0 + c] = cels[(0, c)].mirror()
 
-    # 4..11: Walk right (mirrored Row 1, 8 frames)
+    # Row 1 (4..7): Walk right (Row 1 cels mirrored)
     for c in range(4):
         frames[4 + c] = cels[(1, c)].mirror()
-        frames[8 + c] = cels[(1, c)].mirror()
 
-    # 12..15: Carry right (Row 5 mirrored)
-    for c in range(4):
-        frames[12 + c] = cels[(5, c)].mirror()
+    # Row 2 (8..11): Attack right (Row 7 cels mirrored)
+    frames[8]  = cels[(7, 2)].mirror()  # Wind-up overhead
+    frames[9]  = cels[(7, 0)].mirror()  # Forward swing extension with complete cane hook!
+    frames[10] = cels[(7, 3)].mirror()  # Follow-through recovery
+    frames[11] = cels[(7, 1)].mirror()  # Mid swing return
 
-    # 16..19: Ladder climb (Row 11 rear view)
-    frames[16] = cels[(11, 0)]
-    frames[17] = cels[(11, 1)]
-    frames[18] = cels[(11, 0)]
-    frames[19] = cels[(11, 2)]
+    # Row 3 (12..15): Death right (Row 9 cels mirrored)
+    frames[12] = cels[(9, 0)].mirror()  # Slumped
+    frames[13] = cels[(9, 1)].mirror()  # Buckling
+    frames[14] = cels[(9, 2)].mirror()  # Pitching forward
+    frames[15] = cels[(9, 3)].mirror()  # Collapsed flat
 
-    # 20..23: Push frames
-    frames[20] = cels[(2, 0)]           # Push Left 1
-    frames[21] = cels[(2, 0)].mirror()  # Push Right 1
-    frames[22] = cels[(2, 1)].mirror()  # Push Right 2
-    frames[23] = cels[(2, 1)]           # Push Left 2
+    # Row 4 (16..19): Ladder climb (Row 11 rear view)
+    frames[16] = cels[(11, 0)]          # Neutral pose (Ladder idle)
+    frames[17] = cels[(11, 1)]          # Reach left
+    frames[18] = cels[(11, 0)]          # Neutral pose
+    frames[19] = cels[(11, 2)]          # Reach right
 
-    # 24..27: Slide / dash (Row 3 mirrored)
-    for c in range(4):
-        frames[24 + c] = cels[(3, c)].mirror()
-
-    # 28..31: Falling (2-frame alternating: 28, 44, 28, 44)
-    frames[28] = cels[(2, 2)].mirror()
-    frames[29] = cels[(2, 2)]
-    frames[30] = cels[(2, 2)].mirror()
-    frames[31] = cels[(2, 2)]
-
-    # 32..35: Idle left (unmirrored Row 0)
-    for c in range(4):
-        frames[32 + c] = cels[(0, c)]
-
-    # 36..43: Walk left (unmirrored Row 1)
-    for c in range(4):
-        frames[36 + c] = cels[(1, c)]
-        frames[40 + c] = cels[(1, c)]
-
-    # 44..47: Fall left
-    frames[44] = cels[(2, 2)]
-    frames[45] = cels[(2, 2)].mirror()
-    frames[46] = cels[(2, 2)]
-    frames[47] = cels[(2, 2)].mirror()
+    # Row 5 (20..23): Falling (Row 2 flailing frames mirrored)
+    frames[20] = cels[(2, 2)].mirror()
+    frames[21] = cels[(2, 3)].mirror()
+    frames[22] = cels[(2, 2)].mirror()
+    frames[23] = cels[(2, 3)].mirror()
 
     return frames
 
 
-def build_bob_data(all_frames):
+def export_master_png(frames, out_path: Path):
     """
-    Encode 96 frames into 4-bitplane interleaved raw and mask streams.
-    Width: 64 px (4 frames of 16px).
-    Height: 576 scanlines (24 rows of 24px).
-    Each scanline: Plane 0 (8B), Plane 1 (8B), Plane 2 (8B), Plane 3 (8B) = 32 bytes.
+    Export assets/graphics/sprites/player_master_128x144.png (128x144 RGBA).
+    6 rows x 4 columns of 32x24 cells (24px active art, 8px transparent padding).
     """
-    total_frames = len(all_frames)
-    assert total_frames == 96, f"Expected 96 frames, got {total_frames}"
+    img = Image.new('RGBA', (128, 144), (0, 0, 0, 0))
+    for r in range(6):
+        for c in range(4):
+            cel = frames[r * 4 + c]
+            bx = c * CELL_W
+            by = r * H
+            for y in range(H):
+                for x in range(W):
+                    idx = cel.g[y][x]
+                    if idx > 0:
+                        rgb = PAL_8BIT[idx]
+                        img.putpixel((bx + x, by + y), (rgb[0], rgb[1], rgb[2], 255))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    img.save(out_path)
+    print(f"  Exported master PNG: {out_path} ({img.size[0]}x{img.size[1]})")
 
-    num_frame_rows = total_frames // 4  # 24 rows
-    total_scanlines = num_frame_rows * H  # 576 scanlines
+
+def load_frames_from_master_png(master_path: Path):
+    """Load frames directly from player_master_128x144.png if user edited it."""
+    img = Image.open(master_path).convert('RGBA')
+    w, h = img.size
+    assert w == 128 and h == 144, f"Expected 128x144 master PNG, got {w}x{h}"
+    frames = []
+    for r in range(6):
+        for c in range(4):
+            cel = Cel24()
+            bx = c * CELL_W
+            by = r * H
+            for y in range(H):
+                for x in range(W):
+                    p = img.getpixel((bx + x, by + y))
+                    cel.g[y][x] = quantize_pixel(p[0], p[1], p[2], p[3])
+            frames.append(cel)
+    return frames
+
+
+def build_bob_data(frames):
+    """
+    Encode 24 frames into 4-bitplane interleaved raw, mask, and pure-white flash streams.
+    Width: 128 px (4 frames of 32px cell storage, 24px active content).
+    Height: 144 scanlines (6 rows of 24px).
+    Each scanline: Plane 0 (16B), Plane 1 (16B), Plane 2 (16B), Plane 3 (16B) = 64 bytes.
+    Total size: 144 * 64 = 9,216 bytes.
+    """
+    assert len(frames) == 24, f"Expected 24 frames, got {len(frames)}"
+
+    num_frame_rows = 6
+    total_scanlines = num_frame_rows * H  # 144 scanlines
 
     raw_bytes = bytearray()
     msk_bytes = bytearray()
+    white_bytes = bytearray()
 
-    row_bytes = 64 // 8  # 8 bytes per plane row
+    sheet_width = 4 * CELL_W  # 128 pixels
+    row_bytes = sheet_width // 8  # 16 bytes per plane row
 
     for f_row in range(num_frame_rows):
-        row_cels = [all_frames[f_row * 4 + c] for c in range(4)]
+        row_cels = [frames[f_row * 4 + c] for c in range(4)]
         for y in range(H):
             for plane in range(4):
                 line = bytearray(row_bytes)
                 mask = bytearray(row_bytes)
+                white_line = bytearray(row_bytes)
                 for col in range(4):
                     cel = row_cels[col]
                     for x in range(W):
                         idx = cel.g[y][x]
                         bit = (idx >> plane) & 1
                         solid = 1 if idx != 0 else 0
-                        px = col * W + x
+                        px = col * CELL_W + x
                         bp = px // 8
                         shift = 7 - (px % 8)
                         line[bp] |= (bit << shift)
                         mask[bp] |= (solid << shift)
+                        # Pure white in 16-color palette is Color 3 ($0FFF):
+                        # Plane 0 = 1, Plane 1 = 1, Plane 2 = 0, Plane 3 = 0
+                        if plane in (0, 1) and solid:
+                            white_line[bp] |= (1 << shift)
                 raw_bytes.extend(line)
                 msk_bytes.extend(mask)
+                white_bytes.extend(white_line)
 
-    assert len(raw_bytes) == 576 * 32
-    assert len(msk_bytes) == 576 * 32
-    return raw_bytes, msk_bytes
+    expected_size = total_scanlines * 4 * row_bytes  # 144 * 64 = 9,216
+    assert len(raw_bytes) == expected_size, f"Expected {expected_size} bytes, got {len(raw_bytes)}"
+    assert len(msk_bytes) == expected_size
+    assert len(white_bytes) == expected_size
+    return raw_bytes, msk_bytes, white_bytes
 
 
-def create_preview_sheet(all_frames, out_path: Path):
-    """Generate contact sheet showing all 96 frames with color labels."""
-    cols = 8
-    rows = 12
-    cell_w, cell_h = 24, 32
-    scale = 2
-    sheet_w = cols * cell_w * scale
-    sheet_h = rows * cell_h * scale
+def create_preview_sheet(frames, out_path: Path):
+    """Generate contact sheet showing all 24 frames with category labels."""
+    row_titles = [
+        "Row 0: IDLE (Right)",
+        "Row 1: WALK (Right)",
+        "Row 2: ATTACK (Right)",
+        "Row 3: DEATH (Right)",
+        "Row 4: LADDER (Climb)",
+        "Row 5: FALLING"
+    ]
 
-    img = Image.new('RGBA', (sheet_w, sheet_h), (25, 25, 35, 255))
+    cols = 4
+    rows = 6
+    scale = 3
+    card_w = 32 * scale
+    card_h = 24 * scale + 24
+    sheet_w = 160 + cols * card_w + 20
+    sheet_h = rows * card_h + 30
+
+    img = Image.new('RGBA', (sheet_w, sheet_h), (20, 22, 30, 255))
     draw = ImageDraw.Draw(img)
 
-    for f in range(len(all_frames)):
-        col = f % cols
-        row = f // cols
-        x = col * cell_w * scale + 4
-        y = row * cell_h * scale + 4
+    for r in range(rows):
+        y_base = 20 + r * card_h
+        # Draw category title on left margin
+        draw.text((15, y_base + 20), row_titles[r], fill=(220, 210, 170, 255))
 
-        draw.rectangle([x, y, x + 16 * scale + 2, y + 24 * scale + 2], outline=(60, 60, 80, 255))
+        for c in range(cols):
+            f_idx = r * cols + c
+            x_base = 160 + c * card_w
 
-        cel_im = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-        for py in range(H):
-            for px in range(W):
-                c = all_frames[f].g[py][px]
-                if c > 0:
-                    rgb = PAL_8BIT[c]
-                    cel_im.putpixel((px, py), (rgb[0], rgb[1], rgb[2], 255))
+            # Cel box
+            draw.rectangle(
+                [x_base + 4, y_base + 4, x_base + 24 * scale + 6, y_base + 24 * scale + 6],
+                outline=(50, 55, 75, 255),
+                fill=(12, 14, 20, 255)
+            )
 
-        spr = cel_im.resize((16 * scale, 24 * scale), Image.NEAREST)
-        img.paste(spr, (x + 1, y + 1), spr)
-        draw.text((x + 2, y + 24 * scale + 3), f'{f}', fill=(220, 220, 200, 255))
+            cel_im = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+            for py in range(H):
+                for px in range(W):
+                    idx = frames[f_idx].g[py][px]
+                    if idx > 0:
+                        rgb = PAL_8BIT[idx]
+                        cel_im.putpixel((px, py), (rgb[0], rgb[1], rgb[2], 255))
+
+            spr = cel_im.resize((24 * scale, 24 * scale), Image.NEAREST)
+            img.paste(spr, (x_base + 5, y_base + 5), spr)
+            draw.text((x_base + 6, y_base + 24 * scale + 8), f"Frame {f_idx}", fill=(160, 165, 185, 255))
 
     img.save(out_path)
     print(f"  Exported preview contact sheet: {out_path} ({sheet_w}x{sheet_h})")
 
 
 def main():
-    print("=== Converting Player to Blitter Object (BOB) Assets ===")
-    src_png = PROJECT_ROOT / "assets/graphics/sprites/player-animation-16x24.png"
-    out_raw = PROJECT_ROOT / "assets/graphics/sprites/player_bobs_64x576.raw"
-    out_msk = PROJECT_ROOT / "assets/graphics/sprites/player_bobs_64x576.msk"
+    print("=== Converting Player BOB Assets (24 Frames, 128x144) ===")
+    src_png = PROJECT_ROOT / "assets/graphics/sprites/player-animation-20x24.png"
+    master_png = PROJECT_ROOT / "assets/graphics/sprites/player_master_128x144.png"
+    out_raw = PROJECT_ROOT / "assets/graphics/sprites/player_bobs_128x144.raw"
+    out_msk = PROJECT_ROOT / "assets/graphics/sprites/player_bobs_128x144.msk"
+    out_white = PROJECT_ROOT / "assets/graphics/sprites/player_bobs_128x144_white.raw"
     preview_png = PROJECT_ROOT / "assets/graphics/sprites/player_bobs_preview.png"
 
-    if not src_png.exists():
-        print(f"Error: {src_png} does not exist!")
-        sys.exit(1)
+    if master_png.exists():
+        print(f"[*] Loading from existing player master PNG: {master_png}")
+        frames = load_frames_from_master_png(master_png)
+    else:
+        if not src_png.exists():
+            print(f"Error: {src_png} does not exist!")
+            sys.exit(1)
+        print(f"[*] Assembling 24 frames from source spritesheet: {src_png}")
+        cels = load_cels_from_sheet(src_png)
+        frames = assemble_24_player_frames(cels)
+        export_master_png(frames, master_png)
 
-    cels = load_cels_from_sheet(src_png)
-    p1_frames = assemble_player_frames(cels)
-
-    # 96 frames: 48 for Player 1, 48 for Player 2
-    # In Alien Containment, both players share the same animation set or palette variant
-    all_frames = p1_frames + p1_frames
-
-    raw_bytes, msk_bytes = build_bob_data(all_frames)
+    raw_bytes, msk_bytes, white_bytes = build_bob_data(frames)
 
     out_raw.parent.mkdir(parents=True, exist_ok=True)
     with open(out_raw, "wb") as f:
         f.write(raw_bytes)
     with open(out_msk, "wb") as f:
         f.write(msk_bytes)
+    with open(out_white, "wb") as f:
+        f.write(white_bytes)
 
     print(f"  Exported player BOB raw: {out_raw} ({len(raw_bytes)} bytes)")
     print(f"  Exported player BOB msk: {out_msk} ({len(msk_bytes)} bytes)")
+    print(f"  Exported player BOB white: {out_white} ({len(white_bytes)} bytes)")
 
-    create_preview_sheet(all_frames, preview_png)
-    print("=== Step 1: Asset Pipeline Conversion Complete! ===")
+    create_preview_sheet(frames, preview_png)
+    print("=== Player Assets Conversion Complete! ===")
 
 
 if __name__ == "__main__":

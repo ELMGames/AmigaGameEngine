@@ -59,6 +59,20 @@ if (Test-Path "tools/convert_player_bob.py") {
     if ($LASTEXITCODE -ne 0) { Write-Error "Player BOB conversion failed." }
 }
 
+# --- Convert Animal Friend BOB Assets -----------------------------------------
+if (Test-Path "tools/convert_animals.py") {
+    Write-Host "== Converting Animal Friend Assets =="
+    python tools/convert_animals.py
+    if ($LASTEXITCODE -ne 0) { Write-Error "Animal Friend conversion failed." }
+}
+
+# --- Convert Enemy BOB Assets -------------------------------------------------
+if (Test-Path "tools/convert_enemies.py") {
+    Write-Host "== Converting Enemy Assets =="
+    python tools/convert_enemies.py
+    if ($LASTEXITCODE -ne 0) { Write-Error "Enemy conversion failed." }
+}
+
 # --- Assemble ------------------------------------------------------------------
 New-Item -ItemType Directory -Force build | Out-Null
 Write-Host "== Assembling main.asm =="

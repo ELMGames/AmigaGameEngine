@@ -252,14 +252,11 @@ GameRun:
     clr.b       KEY_S(a0)              ; consume key press immediately
     eori.w      #1,SlowMode(a5)
     beq.s       .s_toggled_off         ; toggled off -> normal mode
-    ; Toggled ON: enter SLOW MODE & enable debug overlay to show MODE:SLOW
-    move.w      #1,DebugOverlayActive(a5)
+    ; Toggled ON: enter SLOW MODE
     clr.w       SlowModeHold(a5)
     bra.s       .no_key_s
 .s_toggled_off:
-    ; Toggled OFF: exit SLOW MODE, disable debug overlay & erase it from screen
-    clr.w       DebugOverlayActive(a5)
-    bsr         TilemapEraseDebugOverlay
+    ; Toggled OFF: exit SLOW MODE
     clr.w       SlowModeHold(a5)
 .no_key_s:
 
@@ -288,39 +285,52 @@ GameRun:
                                        ; 1..delay-1: fall through to pause while waiting for hold delay
 
 .slow_paused:
-    ; Paused in SLOW MODE: keep debug overlay drawn and fresh with MODE:SLOW
-    bsr         TilemapDrawDebugOverlay
+    ; Paused in SLOW MODE
+    ; bsr         TilemapDrawDebugOverlay
     bra         .check_debug_keys
 
 .slow_mode_ok:
     bsr         UpdateControls       ; read keyboard, compute trigger/hold bytes
 
-    bsr         ActionDirtActors     ; draw dirt crumble first so falling actors render on top
-
-    ; Erase player and active enemies from last frame's position using pristine NonDisplayScreen
-    lea         Player(a5),a4        ; a4 -> player structure
-    bsr         TilemapErasePlayer
-    bsr         TilemapEraseEnemies  ; erase all dynamic enemies before ANY new drawing happens
-
+    ; 1. Execute all CPU-side game logic first during VBlank (fast, no blitter DMA)
     bsr         PlayerLogic          ; run player action state machine for this frame
+    bsr         PlayerCheckFriends   ; check collision between player and animal friends
+    bsr         PlayerCheckOxygen    ; check collision between player and oxygen refills
+    bsr         PlayerCheckEnemies   ; check collision between player and active enemies
     bsr         TilemapUpdateCamera  ; dynamically scroll camera if player moves up/down
-    bsr         TilemapEraseDebugOverlay ; erase old debug text if camera moved or overlay disabled
     bsr         TilemapUpdateWater   ; advance rising water layer every 10 seconds
     bsr         PlayerUpdateOxygen   ; update submersion, oxygen depletion/refill & safe ground
     bsr         UpdateHUDSprites     ; update Lives, Oxygen, and Bubble hardware sprites
 
-    ; Draw player BOB on top of background platforms/ladders (with foreground & water depth)
+    ; 2. Render dynamic character layer: Player FIRST in Early VBlank! (Lines 15..26)
+    ; In top-of-screen rows (lines 44..108), the PAL display beam reaches the top region
+    ; very quickly after VBlank (scanline 44). Blitting the player FIRST ensures that
+    ; PlayerErase and PlayerDraw complete during lines 15..26 while the electron gun is
+    ; still blanked, completely eliminating scanline race-condition flicker at the top.
     lea         Player(a5),a4        ; a4 -> player structure
-    bsr         TilemapDrawPlayer
+    bsr         TilemapErasePlayer   ; restore pristine background at player's previous footprint
+    bsr         TilemapDrawPlayer    ; draw player BOB with PlayerMsk
+    bsr         TilemapRestorePlayerOverlaps ; restore any adjacent entities wiped by player erase
+
+    ; 3. Render dynamic enemies (lines 26..32). If an enemy overlaps the player (e.g. stunned),
+    ; TilemapUpdateEnemies re-blits the player underneath using PlayerMsk before drawing
+    ; the enemy with EnemySpritesMsk on top, preventing any 16x16 square blanking!
+    bsr         TilemapUpdateEnemies ; update dynamic enemy patrol movement, animation & blit
 
     bsr         ActionCloudActors    ; animate any pending enemy death cloud animations
     bsr         AnimateEnemies       ; cycle ENEMYFALL/ENEMYFLOAT tile frames (2fps)
-    bsr         TilemapUpdateEnemies ; update dynamic enemy patrol movement, animation & blit
+    bsr         ActionDirtActors     ; draw dirt crumble
+
+    ; 3. Render static layer: settled objects, pickups & animal friends
+    bsr         TilemapDrawPushBlocks
+    bsr         TilemapDrawOxygen
+    bsr         TilemapUpdateFriends ; update dynamic animal friends animation & blit
+
     bsr         UpdateCocoons        ; tick cocoon hatch countdowns + pulse animation
 
     bsr         FlushDirtyTiles      ; redraw settled actors/frozen player at all tiles marked dirty this frame
 
-    bsr         TilemapDrawDebugOverlay ; draw green debug HUD on top of active frame
+    ; bsr         TilemapDrawDebugOverlay ; draw green debug HUD on top of active frame
 
     ; VHS rewind effect: tick while active (started by the undo in ActionIdle)
     tst.b       VHS_StateActive
@@ -348,21 +358,19 @@ GameRun:
     tst.w       DebugMode(a5)
     beq.s       .f5_enable
     clr.w       DebugMode(a5)       ; was on (any value): exit debug mode + clear bar
-    clr.w       DebugOverlayActive(a5) ; disable debug text overlay
+    ; clr.w       DebugOverlayActive(a5) ; disable debug text overlay
     bra.s       .no_f5
 .f5_enable:
     move.w      #1,DebugMode(a5)    ; enter debug mode (no raster bar yet)
-    move.w      #1,DebugOverlayActive(a5) ; enable debug text overlay
+    ; move.w      #1,DebugOverlayActive(a5) ; enable debug text overlay
 .no_f5:
 
-    ; 'D': toggle on-screen debug text overlay directly
+    ; 'D': debug text overlay (disabled)
     lea         Keys,a0
     tst.b       KEY_D(a0)
     beq.s       .no_key_d
     clr.b       KEY_D(a0)
-    eori.w      #1,DebugOverlayActive(a5)
-    bne.s       .no_key_d
-    bsr         TilemapEraseDebugOverlay
+    ; eori.w      #1,DebugOverlayActive(a5)
 .no_key_d:
 
     ; F3: toggle raster CPU-timing bar (debug mode must be active via F5 first)

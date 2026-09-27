@@ -6,14 +6,15 @@
 ; Channel allocation:
 ;   SPR0    Player Lives Badge (solo, 16px wide, 9 scanlines, COLOR17-19)
 ;   SPR1    Free (NullSprite)
-;   SPR2-3  Free (NullSprite / reserved for Tower Minimap)
-;   SPR4    Oxygen / Lung Gauge (solo, 16px wide, 7 scanlines, COLOR25-27)
+;   SPR2    Oxygen Kit Inventory Bottle (solo, 16px wide, 13 scanlines, COLOR21-23)
+;   SPR3    Free (NullSprite)
+;   SPR4    Oxygen / Lung Gauge (solo, 16px wide, 28 scanlines, COLOR25-27)
 ;   SPR5    Free (NullSprite)
 ;   SPR6    Dynamic In-World Air Bubble (solo, 16x8 pixels, COLOR29-31)
 ;   SPR7    Free (NullSprite)
 ;
 ; Zero Blitter / CPU raster overhead:
-;   - Lives and Oxygen sprites are screen-pinned (fixed HSTART/VSTART).
+;   - Lives, Oxygen Kit, and Oxygen Gauge sprites are screen-pinned (fixed HSTART/VSTART).
 ;   - Frame updates swap the 32-bit pointer in cpSprites (2 memory writes).
 ;   - Bubble sprite updates position headers dynamically each frame.
 ;
@@ -75,6 +76,44 @@ InitHUDSprites:
     move.w      d4,2(a0)
 
     ; -------------------------------------------------------------------------
+    ; 1b. Setup Oxygen Kit Bottle Sprite (SPR2): Screen X=56, Y=2, Height=13
+    ; -------------------------------------------------------------------------
+    move.w      SpriteYOffset(a5),d0
+    addq.w      #2,d0                   ; d0 = VSTART
+    move.w      d0,d1
+    add.w       #13,d1                  ; d1 = VSTOP (13 scanlines)
+
+    ; HSTART = 56 + WINDOW_X_START = 56 + $81 = 185 ($B9)
+    move.w      #56+WINDOW_X_START,d2   ; d2 = HSTART ($B9)
+    move.w      d0,d3
+    andi.w      #$00ff,d3
+    lsl.w       #8,d3
+    move.w      d2,d4
+    lsr.w       #1,d4                   ; d4 = HSTART[8:1] ($5C)
+    andi.w      #$00ff,d4
+    or.w        d4,d3                   ; d3 = SPRxPOS
+
+    move.w      d1,d4
+    andi.w      #$00ff,d4
+    lsl.w       #8,d4
+    move.w      d2,d5
+    andi.w      #1,d5                   ; d5 = HSTART[0] (1)
+    or.w        d5,d4                   ; d4 = SPRxCTL
+
+    ; Patch SpriteOxygenKit header
+    lea         SpriteOxygenKit,a0
+    move.w      d3,(a0)
+    move.w      d4,2(a0)
+
+    ; Point SPR2PTH/L to NullSprite by default (visible only when in inventory)
+    move.l      #NullSprite,d0
+    lea         cpSprites+16,a0
+    swap        d0
+    move.w      d0,2(a0)
+    swap        d0
+    move.w      d0,6(a0)
+
+    ; -------------------------------------------------------------------------
     ; 2. Setup Oxygen Gauge (SPR4): Screen X=16, Y=4, Height=28
     ; -------------------------------------------------------------------------
     move.w      SpriteYOffset(a5),d0
@@ -104,8 +143,8 @@ InitHUDSprites:
     move.w      d3,(a0)
     move.w      d4,2(a0)
 
-    ; Point SPR4PTH/L permanently to SpriteOxy
-    move.l      #SpriteOxy,d0
+    ; Point SPR4PTH/L to NullSprite by default (visible only when in water)
+    move.l      #NullSprite,d0
     lea         cpSprites+32,a0
     swap        d0
     move.w      d0,2(a0)
@@ -113,8 +152,13 @@ InitHUDSprites:
     move.w      d0,6(a0)
 
     ; -------------------------------------------------------------------------
-    ; 3. Setup Palette in cpPal: SPR4 (COLOR25-27) & SPR6 (COLOR29-31)
+    ; 3. Setup Palette in cpPal: SPR2, SPR4 & SPR6
     ; -------------------------------------------------------------------------
+    ; SPR2 Oxygen Kit colours:
+    move.w      #$0024,cpPal+(21*4)+2   ; Color 1: Deep Navy Outline
+    move.w      #$02DF,cpPal+(22*4)+2   ; Color 2: Neon Cyan Body
+    move.w      #$0FFF,cpPal+(23*4)+2   ; Color 3: Crisp White Cap / Highlight
+
     ; SPR4 Oxygen Gauge colours:
     move.w      #$0FFF,cpPal+(25*4)+2   ; Color 1: Crisp White (OXY text, borders)
     move.w      #$02DF,cpPal+(26*4)+2   ; Color 2: Neon Cyan (Oxygen liquid)
@@ -168,8 +212,68 @@ UpdateHUDSprites:
     move.w      d0,6(a0)
 
     ; -------------------------------------------------------------------------
-    ; 2. Update Oxygen Bar (SPR4: 16x28 Vertical Gauge, 20 Fill Rows)
+    ; 1b. Update Oxygen Kit Inventory Sprite (SPR2 at cpSprites + 16)
     ; -------------------------------------------------------------------------
+    tst.w       OxygenKitInventory(a5)
+    beq.s       .hide_oxygen_kit
+
+    move.l      #SpriteOxygenKit,d0
+    bra.s       .set_spr2
+
+.hide_oxygen_kit:
+    move.l      #NullSprite,d0
+
+.set_spr2:
+    lea         cpSprites+16,a0
+    swap        d0
+    move.w      d0,2(a0)
+    swap        d0
+    move.w      d0,6(a0)
+
+    ; -------------------------------------------------------------------------
+    ; 2. Update Oxygen Bar (SPR4: 16x28 Vertical Gauge, 20 Fill Rows)
+    ;    Visible ONLY when player is in water or replenishing breath!
+    ; -------------------------------------------------------------------------
+    ; Condition 1: If oxygen is depleted / replenishing (< OXYGEN_MAX), show gauge!
+    move.w      PlayerOxygen(a5),d0     ; 0..OXYGEN_MAX (400)
+    cmp.w       #OXYGEN_MAX,d0
+    blt.s       .show_oxy
+
+    ; Condition 2: If head is submerged underwater, show gauge!
+    tst.w       PlayerSubmerged(a5)
+    bne.s       .show_oxy
+
+    ; Condition 3: Check if level has water and player's feet touch water
+    move.w      WaterPixelY(a5),d1
+    bmi.s       .hide_oxy               ; no water on level -> hide
+
+    lea         Player(a5),a1
+    move.w      Player_Y(a1),d2
+    lsl.w       #4,d2
+    add.w       Player_YDec(a1),d2
+    add.w       #15,d2                  ; d2 = player feet Y
+    cmp.w       d1,d2                   ; feet Y >= WaterPixelY?
+    bge.s       .show_oxy               ; feet in water -> show!
+
+.hide_oxy:
+    ; Point SPR4 to NullSprite (hide gauge completely on dry land)
+    move.l      #NullSprite,d0
+    lea         cpSprites+32,a0
+    swap        d0
+    move.w      d0,2(a0)
+    swap        d0
+    move.w      d0,6(a0)
+    bra         .oxy_update_done
+
+.show_oxy:
+    ; Point SPR4 to SpriteOxy (display gauge)
+    move.l      #SpriteOxy,d0
+    lea         cpSprites+32,a0
+    swap        d0
+    move.w      d0,2(a0)
+    swap        d0
+    move.w      d0,6(a0)
+
     move.w      PlayerOxygen(a5),d0     ; 0..OXYGEN_MAX (400)
     bpl.s       .oxy_not_neg
     moveq       #0,d0
@@ -213,16 +317,25 @@ UpdateHUDSprites:
 
     ; Flash liquid colour if critical (<= OXYGEN_CRITICAL)
     cmp.w       #OXYGEN_CRITICAL,PlayerOxygen(a5)
-    bgt.s       .oxy_normal_color
+    bgt.s       .oxy_check_active_color
     move.w      TickCounter(a5),d1
     btst        #2,d1                   ; flash every 4 frames (~12Hz)
-    beq.s       .oxy_normal_color
+    beq.s       .oxy_check_active_color
     ; Flash color: Bright Warning Red
     move.w      #$0F30,cpPal+(26*4)+2
-    bra.s       .oxy_color_done
+    bra.s       .oxy_update_done
+
+.oxy_check_active_color:
+    tst.w       OxygenKitActive(a5)
+    beq.s       .oxy_normal_color
+    ; Dark Blue for Oxygen Kit active
+    move.w      #$016D,cpPal+(26*4)+2   ; Dark Blue liquid
+    bra.s       .oxy_update_done
+
 .oxy_normal_color:
     move.w      #$02DF,cpPal+(26*4)+2   ; Neon Cyan
-.oxy_color_done:
+
+.oxy_update_done:
 
     ; -------------------------------------------------------------------------
     ; 3. Update Air Bubble (SPR6 at cpSprites + 48)
@@ -434,6 +547,35 @@ SpriteLives_Table:
     dc.l    SpriteLives_1
     dc.l    SpriteLives_2
     dc.l    SpriteLives_3
+
+
+; -----------------------------------------------------------------------------
+; Oxygen Kit Inventory Sprite (SPR2, 16px wide x 13 scanlines)
+;
+; Displayed to the right of the lives counter when an oxygen bottle is in inventory.
+;
+; Colors:
+;   Color 1 (Plane 0=1, Plane 1=0): Outline (Navy $0024)
+;   Color 2 (Plane 0=0, Plane 1=1): Body (Neon Cyan $02DF)
+;   Color 3 (Plane 0=1, Plane 1=1): Cap, Valve & Highlight (White $0FFF)
+; -----------------------------------------------------------------------------
+
+SpriteOxygenKit:
+    dc.w    0,0                         ; header (patched by InitHUDSprites)
+    dc.w    $03C0,$0180                 ; Row 0: Valve knob (White with dark outline)
+    dc.w    $0180,$0000                 ; Row 1: Valve neck (Dark outline)
+    dc.w    $07E0,$0000                 ; Row 2: Bottle shoulder top (Dark outline)
+    dc.w    $0C20,$07C0                 ; Row 3: Bottle shoulder curve (Cyan with White highlight)
+    dc.w    $0E20,$07C0                 ; Row 4: Cylinder body 1
+    dc.w    $0E20,$07C0                 ; Row 5: Cylinder body 2
+    dc.w    $0E20,$07C0                 ; Row 6: Cylinder body 3
+    dc.w    $0E20,$07C0                 ; Row 7: Cylinder body 4
+    dc.w    $0E20,$07C0                 ; Row 8: Cylinder body 5
+    dc.w    $0E20,$07C0                 ; Row 9: Cylinder body 6
+    dc.w    $0C20,$07C0                 ; Row 10: Lower cylinder
+    dc.w    $07E0,$0000                 ; Row 11: Base boot
+    dc.w    $03C0,$0000                 ; Row 12: Base bottom outline
+    dc.w    0,0                         ; terminator
 
 
 ; -----------------------------------------------------------------------------

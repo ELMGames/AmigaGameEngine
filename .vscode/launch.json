@@ -17,7 +17,7 @@
                 "-s", "chipset=ocs",
                 "-s", "cpu_type=68000",
                 "-s", "ntsc=false",
-                "-s", "gfx_linemode=scanlines",
+                "-s", "gfx_linemode=double",
                 "-s", "filesystem=rw,dh0:${workspaceFolder}/uae/dh0"
             ],
             "preLaunchTask": "amigaassembly: build",

@@ -157,6 +157,7 @@ Init:
     clr.w      SlowModeHold(a5)
     clr.w      PrevKeyS(a5)
     clr.w      DebugOverlayActive(a5)
+    clr.w      PrevDebugDrawn(a5)
     move.w     #DEFAULT_LIVES,PlayerLives(a5)
     lea        Keys,a0
     clr.b      KEY_S(a0)
@@ -166,6 +167,7 @@ Init:
     bsr        DetectOCS           ; detect OCS vs ECS chipset; disables VBlank tracking in OCS mode
     bsr        AudioInit           ; install CIA-B music interrupt; reads IsPAL(a5) for CIA timing
     bsr        KeyboardInit
+    bsr        PlayerInitFlippedSprites ; pre-generate left-facing player BOBs in Chip RAM
 
     ; Install minimal handlers for the four most common 68000 hardware faults
     ; plus TRAP #0.  Converts silent random crashes into a solid red screen at
@@ -574,17 +576,42 @@ EnemySpritesRaw:
     incbin     "assets/graphics/enemies/enemies_64x128.raw"
     even
 
+EnemySpritesWhiteRaw:
+    incbin     "assets/graphics/enemies/enemies_64x128_white.raw"
+    even
+
 EnemySpritesMsk:
     incbin     "assets/graphics/enemies/enemies_64x128.msk"
     even
 
 PlayerRaw:
-    incbin     "assets/graphics/sprites/player_bobs_64x576.raw"
+    incbin     "assets/graphics/sprites/player_bobs_128x144.raw"
     even
 
 PlayerMsk:
-    incbin     "assets/graphics/sprites/player_bobs_64x576.msk"
+    incbin     "assets/graphics/sprites/player_bobs_128x144.msk"
     even
+
+PlayerWhiteRaw:
+    incbin     "assets/graphics/sprites/player_bobs_128x144_white.raw"
+    even
+
+DizzyStarsRaw:
+    incbin     "assets/graphics/enemies/dizzy_stars_64x16.raw"
+    even
+
+DizzyStarsMsk:
+    incbin     "assets/graphics/enemies/dizzy_stars_64x16.msk"
+    even
+
+AnimalSpritesRaw:
+    incbin     "assets/graphics/animals/animals_64x48.raw"
+    even
+
+AnimalSpritesMsk:
+    incbin     "assets/graphics/animals/animals_64x48.msk"
+    even
+
 
 ; (The game complete screen reuses TitleLogoRaw/TitleLogoPal above â€” no
 ; dedicated logo assets; see GC_LOGO_OFF in gamecomplete.asm.)
@@ -637,6 +664,7 @@ Keys:
 
 SnapshotBuffer:
     ds.b       Snap_sizeof*UNDO_BUFFER_SIZE
+    even
 
 GameStack:
     ds.b       4096         ; the game's own stack (Restart switches to it, so the
@@ -685,8 +713,14 @@ TileSet:
     ds.b       TILE_SIZE           ; minimal tile scratch buffer (480 bytes)
 TileMask:
     ds.b       TILE_SIZE           ; minimal tile mask scratch buffer (480 bytes)
-PlayerHWSprites:
-;   ds.b       PLAYERHWSPRITES_SIZE ; Deprecated - player converted to BOB in data_chip
+
+; Left-facing flipped player BOB buffers (generated at startup by PlayerInitFlippedSprites)
+PlayerLeftRaw:
+    ds.b       PLAYER_BOB_TOTAL_BYTES ; 9,216 bytes
+PlayerLeftMsk:
+    ds.b       PLAYER_BOB_TOTAL_BYTES ; 9,216 bytes
+PlayerLeftWhiteRaw:
+    ds.b       PLAYER_BOB_TOTAL_BYTES ; 9,216 bytes
 
 ScreenMemEnd:
     ds.b       200

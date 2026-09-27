@@ -29,24 +29,38 @@
 ;==============================================================================
 
 CopySaveToStatic:
-    PUSHM         a0-a1
+    PUSHM         d0-d1/a0-a1
+
+    ; Get current TILE Y offset based on player/camera position (0..28)
+    move.w        TilemapScreenOffset(a5),d0
+    bpl.s         .y_not_neg
+    moveq         #0,d0
+.y_not_neg:
+    cmp.w         #LEVEL_SCREEN_ROWS-15,d0
+    ble.s         .y_clamp_ok
+    move.w        #LEVEL_SCREEN_ROWS-15,d0
+.y_clamp_ok:
+
+    ; Byte offset in 4-plane interleaved screen = TileY * 2560
+    mulu.w        #TILEMAP_ROW_STRIDE,d0     ; d0 = TileY * 2560
+
+    lea           NonDisplayScreen,a0
+    adda.l        d0,a0                      ; source at Tile Y offset
+    lea           DisplayScreen,a1
+    adda.l        d0,a1                      ; dest at Tile Y offset
+
     WAITBLIT
     move.w        #$0000,BLTCON1(a6)
-    move.w        #$05CC,BLTCON0(a6)      ; USEB|USED, minterm  (D=B)
-    move.w        #0,BLTBMOD(a6)          ; no modulo: flat source
-    move.w        #0,BLTDMOD(a6)          ; no modulo: flat dest
-    lea           NonDisplayScreen,a0
-    move.l        a0,BLTBPT(a6)           ; B = source (NonDisplayScreen)
-    lea           DisplayScreen,a1
-    move.l        a1,BLTDPT(a6)           ; D = dest   (DisplayScreen)
-    move.w        #(540<<6)|20,BLTSIZE(a6); first half (540 rows x 20 words = 21600 bytes)
-    WAITBLIT
-    lea           NonDisplayScreen+21600,a0
-    move.l        a0,BLTBPT(a6)
-    lea           DisplayScreen+21600,a1
+    move.w        #$09f0,BLTCON0(a6)         ; USEA|USED, minterm $F0 (D=A)
+    move.l        #$ffffffff,BLTAFWM(a6)     ; full mask
+    move.w        #0,BLTAMOD(a6)             ; flat source
+    move.w        #0,BLTDMOD(a6)             ; flat dest
+    move.l        a0,BLTAPT(a6)
     move.l        a1,BLTDPT(a6)
-    move.w        #(540<<6)|20,BLTSIZE(a6); second half (540 rows x 20 words = 21600 bytes)
-    POPM          a0-a1
+    move.w        #(15*TILEMAP_TILE_HEIGHT*TILEMAP_TILE_PLANES<<6)|(SCREEN_WIDTH_BYTE/2),BLTSIZE(a6)
+    WAITBLIT
+
+    POPM          d0-d1/a0-a1
     rts
 
 ;==============================================================================

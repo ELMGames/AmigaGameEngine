@@ -182,6 +182,24 @@ Snap_PlayerFacing:        rs.w    1   ; Player Player_Facing (+1/-1)
 Snap_PlayerOnLadder:      rs.w    1   ; Player Player_OnLadder (0/nonzero)
 Snap_Map:                 rs.b    MAX_GAME_MAP_SIZE  ; GameMap copy (1280 bytes)
 Snap_Actors:              rs.b    MAX_ACTORS*SNAP_ACTOR_WORDS*2  ; 88 x 14 bytes (1,232 bytes)
+Snap_WaterPixelY:         rs.w    1   ; exact vertical scanline of water surface (0..671, or -1)
+Snap_WaterCurrentRow:     rs.w    1   ; row of top of water (WaterPixelY >> 4)
+Snap_WaterSubTick:        rs.w    1   ; fractional frame accumulator
+Snap_PlayerOxygen:        rs.w    1   ; oxygen breath counter (0..OXYGEN_MAX)
+Snap_PlayerSubmerged:     rs.w    1   ; 1 if head is underwater, 0 if surfaced
+Snap_OxygenKitInventory:  rs.w    1   ; 1 = oxygen kit bottle in inventory
+Snap_OxygenKitActive:     rs.w    1   ; 1 = enhanced dark-blue oxygen active
+Snap_PlayerSafeX:         rs.w    1   ; tile X of last dry ground
+Snap_PlayerSafeY:         rs.w    1   ; tile Y of last dry ground
+Snap_PlayerSafePixelX:    rs.w    1   ; pixel X of last dry ground
+Snap_PlayerSafePixelY:    rs.w    1   ; pixel Y of last dry ground
+Snap_ActiveEnemyCount:    rs.w    1   ; active dynamic enemies count (0..MAX_ACTIVE_ENEMIES)
+Snap_ActiveEnemies:       rs.b    ei_SIZEOF*MAX_ACTIVE_ENEMIES ; 16 * 24 = 384 bytes
+Snap_ActiveFriendCount:   rs.w    1   ; active animal friends count (0..MAX_ACTIVE_FRIENDS)
+Snap_FriendsRescuedCount: rs.w    1   ; number of rescued friends
+Snap_ActiveFriends:       rs.b    fi_SIZEOF*MAX_ACTIVE_FRIENDS ; 8 * 20 = 160 bytes
+Snap_ActiveOxygenCount:   rs.w    1   ; active oxygen refills count (0..MAX_ACTIVE_OXYGEN)
+Snap_ActiveOxygen:        rs.b    ox_SIZEOF*MAX_ACTIVE_OXYGEN  ; 8 * 16 = 128 bytes
 Snap_sizeof:              rs.w    0   ; total snapshot size in bytes
 
 ; Backward compatibility aliases:
@@ -218,6 +236,7 @@ LevelDef_Width:           rs.w    1   ; Map width in tiles
 LevelDef_Height:          rs.w    1   ; Map height in tiles
 LevelDef_BackgroundMap:   rs.l    1   ; Pointer to background layer binary .map (0 if none)
 LevelDef_PlatformMap:     rs.l    1   ; Pointer to platform layer binary .map (0 if none)
+LevelDef_LadderMap:       rs.l    1   ; Pointer to ladder layer binary .map (0 if none)
 LevelDef_ForegroundMap:   rs.l    1   ; Pointer to foreground layer binary .map (0 if none)
 LevelDef_WaterMap:        rs.l    1   ; Pointer to water layer binary .map (0 if none)
 LevelDef_LayerCount:      rs.w    1   ; Number of ordered tile layers
@@ -242,11 +261,14 @@ LevelDef_P2Facing:        rs.w    1   ; Player 2 facing
 
 ; --- Entity & Object Lists ---
 LevelDef_EnemyList:       rs.l    1   ; Pointer to enemy spawn list
+LevelDef_FriendList:      rs.l    1   ; Pointer to animal friends spawn list
+LevelDef_BlockList:       rs.l    1   ; Pointer to pushable blocks list
 LevelDef_LadderList:      rs.l    1   ; Pointer to ladder bounding box list
 LevelDef_SolidList:       rs.l    1   ; Pointer to solid platform list
 LevelDef_TriggerList:     rs.l    1   ; Pointer to trigger/exit zones list
 LevelDef_HazardList:      rs.l    1   ; Pointer to hazard zones list
 LevelDef_BridgeList:      rs.l    1   ; Pointer to bridge zones list
+LevelDef_OxygenList:      rs.l    1   ; Pointer to oxygen refills list
 
 ; --- Banner Text & Access Code ---
 LevelDef_TitleStr:        rs.l    1   ; Pointer to null-terminated title string

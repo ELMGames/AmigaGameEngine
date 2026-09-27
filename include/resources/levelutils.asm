@@ -62,6 +62,7 @@ LevelInit:
     clr.w         Player_PrevX(a0)       ; Clear previous X
     clr.w         Player_PrevY(a0)       ; Clear previous Y
     clr.w         Player_PrevDrawn(a0)   ; Clear previous drawn flag
+    clr.w         Player_ErasedFlag(a5)  ; Clear wide footprint erase flag
     clr.w         Player_NextX(a0)       ; Clear destination X
     clr.w         Player_NextY(a0)       ; Clear destination Y
     clr.w         Player_ActionCount(a0) ; Clear action countdown
@@ -78,6 +79,8 @@ LevelInit:
     clr.w         PlayerSubmerged(a5)
     clr.w         PlayerDrowning(a5)
     clr.w         PlayerDrownTimer(a5)
+    clr.w         OxygenKitInventory(a5)
+    clr.w         OxygenKitActive(a5)
     tst.w         PlayerLives(a5)
     bne.s         .lives_ok
     move.w        #DEFAULT_LIVES,PlayerLives(a5)
@@ -166,17 +169,17 @@ LevelInit:
     move.w        Player_PixelX(a0),PlayerSafePixelX(a5)
     move.w        Player_PixelY(a0),PlayerSafePixelY(a5)
 
-    ; Apply BOB offset based on SelectedPlayer (0 = Price/frame 48, 1 = Cole/frame 0)
-    move.w        #48,Player_BobOffset(a0)    ; default: Dr. Price
-    move.w        #31,Player_FrozenBobBase(a0)
-    move.w        #34,Player_LadderFreezeId(a0)
+    ; Apply BOB offset (24-sprite unified sheet: frame 0..23)
+    clr.w         Player_BobOffset(a0)
+    move.w        #20,Player_FrozenBobBase(a0)
+    move.w        #PLAYER_LADDER_IDLE,Player_LadderFreezeId(a0)
     move.b        #BLOCK_PLAYERSTART,Player_BlockId(a0)
     move.b        #BLOCK_PLAYERLADDER,Player_LadderId(a0)
     tst.w         SelectedPlayer(a5)
     beq.s         .not_custom_level
-    clr.w         Player_BobOffset(a0)       ; Sgt. Cole
-    move.w        #29,Player_FrozenBobBase(a0)
-    move.w        #33,Player_LadderFreezeId(a0)
+    clr.w         Player_BobOffset(a0)
+    move.w        #20,Player_FrozenBobBase(a0)
+    move.w        #PLAYER_LADDER_IDLE,Player_LadderFreezeId(a0)
     move.b        #BLOCK_PLAYERSTART,Player_BlockId(a0)
     move.b        #BLOCK_PLAYERLADDER,Player_LadderId(a0)
 .not_custom_level:
@@ -185,6 +188,8 @@ LevelInit:
     bsr           WallpaperMakeAcid      ; stamp TILE_ACID over BLOCK_ACID cells
     bsr           InitGameObjects        ; create actors for all game objects in map
     bsr           LevelInitEnemies       ; populate ActiveEnemies table from LevelDef
+    bsr           LevelInitFriends       ; populate ActiveFriends table from LevelDef
+    bsr           LevelInitOxygen        ; populate ActiveOxygen table from LevelDef
     rts
 
 ;==============================================================================
@@ -1065,4 +1070,145 @@ LevelInitEnemies:
 .done_init_enemies:
     POPM        d0-d7/a0-a3
     rts
+
+
+;==============================================================================
+; LevelInitFriends  -  Initialize ActiveFriends array from current LevelDef
+;
+; Reads spawn records from LevelDef_FriendList and fills ActiveFriends in RAM.
+; Each spawn record contains:
+;   dc.w Type, Col, Row, SpawnX, SpawnY, Res1, Res2, Res3 (16 bytes per record)
+; List terminated by $FFFF.
+;
+; Sets ActiveFriendCount and clears drawn state.
+;==============================================================================
+
+LevelInitFriends:
+    PUSHM       d0-d7/a0-a3
+    clr.w       ActiveFriendCount(a5)
+    clr.w       FriendsRescuedCount(a5)
+
+    ; Clear entire ActiveFriends buffer
+    lea         ActiveFriends(a5),a1
+    move.w      #(fi_SIZEOF*MAX_ACTIVE_FRIENDS)/2-1,d7
+.clear_friend_loop:
+    clr.w       (a1)+
+    dbra        d7,.clear_friend_loop
+
+    ; Locate LevelDef FriendList
+    move.l      CurrentLevelDef(a5),d0
+    beq.s       .done_init_friends
+    movea.l     d0,a0
+    move.l      LevelDef_FriendList(a0),d0
+    beq.s       .done_init_friends
+    movea.l     d0,a0                   ; a0 = FriendList source
+
+    lea         ActiveFriends(a5),a1    ; a1 = ActiveFriends destination
+    clr.w       d6                      ; d6 = count
+
+.populate_friend_loop:
+    move.w      (a0)+,d0                ; Type (1..4, or $ffff end marker)
+    cmp.w       #$ffff,d0
+    beq.s       .finish_friend_init
+    cmp.w       #MAX_ACTIVE_FRIENDS,d6
+    bge.s       .finish_friend_init     ; table full
+
+    move.w      (a0)+,d1                ; Col
+    move.w      (a0)+,d2                ; Row
+    move.w      (a0)+,d3                ; SpawnX
+    move.w      (a0)+,d4                ; SpawnY
+    addq.l      #6,a0                   ; skip Res1, Res2, Res3 (6 bytes)
+
+    ; Store in ActiveFriend instance (a1)
+    move.w      d0,fi_Type(a1)
+    move.w      d3,fi_X(a1)
+    move.w      d4,fi_Y(a1)
+    clr.w       fi_AnimFrame(a1)
+    move.w      d6,d5
+    lsl.w       #2,d5                   ; stagger initial anim timer (0, 4, 8, 12...)
+    move.w      d5,fi_AnimTimer(a1)
+    clr.w       fi_Rescued(a1)
+    clr.w       fi_PrevX(a1)
+    clr.w       fi_PrevY(a1)
+    clr.w       fi_Drawn(a1)
+
+    lea         fi_SIZEOF(a1),a1
+    addq.w      #1,d6
+    bra.s       .populate_friend_loop
+
+.finish_friend_init:
+    move.w      d6,ActiveFriendCount(a5)
+
+.done_init_friends:
+    POPM        d0-d7/a0-a3
+    rts
+
+
+;==============================================================================
+; LevelInitOxygen  -  Initialize ActiveOxygen array from current LevelDef
+;
+; Reads spawn records from LevelDef_OxygenList and fills ActiveOxygen in RAM.
+; Each spawn record contains:
+;   Col (w), Row (w), PixelX (w), PixelY (w), TileId (w), Res1 (w), Res2 (w), Res3 (w)
+; Format ends with $ffff word marker.
+;
+; Sets ActiveOxygenCount and clears drawn / collected state.
+;==============================================================================
+
+LevelInitOxygen:
+    PUSHM       d0-d7/a0-a3
+    clr.w       ActiveOxygenCount(a5)
+
+    ; Clear entire ActiveOxygen buffer
+    lea         ActiveOxygen(a5),a1
+    move.w      #(ox_SIZEOF*MAX_ACTIVE_OXYGEN)/2-1,d7
+.clear_oxygen_loop:
+    clr.w       (a1)+
+    dbra        d7,.clear_oxygen_loop
+
+    ; Locate LevelDef OxygenList
+    move.l      CurrentLevelDef(a5),d0
+    beq.s       .done_init_oxygen
+    movea.l     d0,a0
+    move.l      LevelDef_OxygenList(a0),d0
+    beq.s       .done_init_oxygen
+    movea.l     d0,a0                   ; a0 = OxygenList source
+
+    lea         ActiveOxygen(a5),a1     ; a1 = ActiveOxygen destination
+    clr.w       d6                      ; d6 = count
+
+.populate_oxygen_loop:
+    move.w      (a0)+,d1                ; Col (or $ffff end marker)
+    cmp.w       #$ffff,d1
+    beq.s       .finish_oxygen_init
+    cmp.w       #MAX_ACTIVE_OXYGEN,d6
+    bge.s       .finish_oxygen_init     ; table full
+
+    move.w      (a0)+,d2                ; Row
+    move.w      (a0)+,d3                ; PixelX
+    move.w      (a0)+,d4                ; PixelY
+    move.w      (a0)+,d0                ; TileId (e.g. 95)
+    addq.l      #6,a0                   ; skip Res1, Res2, Res3 (6 bytes)
+
+    ; Store in ActiveOxygen instance (a1)
+    move.w      d1,ox_Col(a1)
+    move.w      d2,ox_Row(a1)
+    move.w      d3,ox_X(a1)
+    move.w      d4,ox_Y(a1)
+    clr.w       ox_Collected(a1)
+    clr.w       ox_Drawn(a1)
+    move.w      d0,ox_TileId(a1)
+
+    lea         ox_SIZEOF(a1),a1
+    addq.w      #1,d6
+    bra.s       .populate_oxygen_loop
+
+.finish_oxygen_init:
+    move.w      d6,ActiveOxygenCount(a5)
+
+.done_init_oxygen:
+    POPM        d0-d7/a0-a3
+    rts
+
+
 

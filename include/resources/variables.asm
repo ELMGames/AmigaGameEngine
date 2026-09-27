@@ -413,6 +413,12 @@ LevelCamMarginTop:    rs.w    1               ; camera upper deadzone margin (e.
 LevelCamMarginBottom: rs.w    1               ; camera lower deadzone margin (e.g. 176)
 ActiveEnemyCount:     rs.w    1               ; number of active enemies (0..MAX_ACTIVE_ENEMIES)
 ActiveEnemies:        rs.b    ei_SIZEOF*MAX_ACTIVE_ENEMIES ; runtime enemy instances array
+ActiveFriendCount:    rs.w    1               ; number of active friends (0..MAX_ACTIVE_FRIENDS)
+ActiveFriends:        rs.b    fi_SIZEOF*MAX_ACTIVE_FRIENDS ; runtime animal friend instances array
+FriendsRescuedCount:  rs.w    1               ; number of rescued friends (0..MAX_ACTIVE_FRIENDS)
+ActiveOxygenCount:    rs.w    1               ; number of active oxygen refill pickups (0..MAX_ACTIVE_OXYGEN)
+ActiveOxygen:         rs.b    ox_SIZEOF*MAX_ACTIVE_OXYGEN  ; runtime oxygen refill pickups array
+
 
 ; Debug on-screen text overlay state
 DebugOverlayActive:   rs.w    1               ; 0=off, 1=on (toggled by 'D' key or F5)
@@ -436,12 +442,17 @@ LiveWaterMap:         rs.b    8+TILEMAP_MAP_TILES*2 ; runtime editable copy of w
 PlayerLives:          rs.w    1               ; player remaining lives (starts at 3)
 PlayerOxygen:         rs.w    1               ; oxygen breath counter (0..OXYGEN_MAX)
 PlayerSubmerged:      rs.w    1               ; 1 if head is underwater, 0 if surfaced
+OxygenKitInventory:   rs.w    1               ; 1 = oxygen kit bottle in inventory (outside water)
+OxygenKitActive:      rs.w    1               ; 1 = enhanced dark-blue oxygen active (half-speed drain)
 PlayerSafeX:          rs.w    1               ; tile X of last dry ground
 PlayerSafeY:          rs.w    1               ; tile Y of last dry ground
 PlayerSafePixelX:     rs.w    1               ; pixel X of last dry ground
 PlayerSafePixelY:     rs.w    1               ; pixel Y of last dry ground
 PlayerDrowning:       rs.w    1               ; 1 if drowning sequence is active
 PlayerDrownTimer:     rs.w    1               ; timer for drowning animation/respawn
+PlayerAttackTimer:    rs.w    1               ; timer for cane attack swing animation/hitbox
+PlayerDeathTimer:     rs.w    1               ; timer for player collapse death animation
+PlayerInvincibleTimer: rs.w   1               ; post-respawn invulnerability timer (countdown from 100)
                       even
 
 ; Air bubble sprite state (SPR6)
@@ -449,6 +460,13 @@ BubbleActive:         rs.w    1               ; 0 = inactive, 1 = rising
 BubbleWorldX:         rs.w    1               ; world pixel X of bubble
 BubbleWorldY:         rs.w    1               ; world pixel Y of bubble
 BubbleTimer:          rs.w    1               ; spawn countdown timer
+                      even
+
+; Wide-footprint character erase parameters (used by TilemapRestorePlayerOverlaps)
+Player_ErasedX:       rs.w    1               ; world pixel X of erased player footprint
+Player_ErasedY:       rs.w    1               ; world pixel Y of erased player footprint
+Player_ErasedSpan:    rs.w    1               ; horizontal pixel width of erase blit (32 or 48)
+Player_ErasedFlag:    rs.w    1               ; 1 if player was erased this frame, 0 if skipped
                       even
 
 Variables_sizeof:     rs.w    0           ; total size of the Variables block in bytes

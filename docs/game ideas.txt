@@ -1,0 +1,107 @@
+# FLOOD RESCUE: RISING TIDE (GAMEPLAY & DESIGN SPECIFICATION)
+==============================================================================
+
+## 1. Core Premise & Win Condition
+------------------------------------------------------------------------------
+* **Genre**: Vertical Action-Puzzle Platformer (Amiga OCS/ECS, 50Hz PAL / 60Hz NTSC).
+* **The Pitch**: Heavy rainfall and ruptured drainage mains have triggered an unstoppable flood. As a compassionate caretaker armed only with an old wooden walking cane, you must ascend through multi-tier vertical shafts, rescue stranded small animals before the rising water drowns them, and climb the summit escape ladder to safety.
+* **The Main Goal**: Rescue 100% of the small animals scattered across the 20x42 tile shaft.
+* **The Exit Condition**: The escape ladder leading out through the top of the shaft (Row 0) is **STRICTLY INVISIBLE and inactive** until the last animal in the level is collected. Once all animals are safe, a victory chime plays, and the exit ladder extends down from the summit hatch!
+* **The Implicit Timer**: The rising water line (`WaterPixelY`) creeps continuously upward from Row 41 toward Row 0. If the water submerges an animal for too long, or reaches the top before you escape, the level is lost.
+
+
+## 2. Animal Rescue System & HUD Tracking
+------------------------------------------------------------------------------
+* **Visuals & Behavior**:
+  - Animals are cute 16x16 pixel sprites/tiles (e.g. rabbits, kittens, puppies, ducklings).
+  - They hop up and down in place with a 2-frame bounce animation and emit distress sounds when water approaches.
+* **Collection Mechanic**:
+  - Simply walking into an animal collects it instantly with a cheerful pickup chime.
+  - Floating animal crate fallback: If water reaches an animal's platform, the animal leaps onto a floating wooden crate to stay above water temporarily, giving the player one last desperate chance to dive in and save them!
+* **HUD Animal Counter (`SPR0` Hardware Sprite)**:
+  - Replaces the generic lives badge in the top-left margin (Column 2, Screen X=36, Y=4).
+  - Displays a 16x9 mini animal silhouette icon + remaining animal count digit:
+    `[Animal Icon] x 4` -> `3` -> `2` -> `1` -> `0`.
+  - When the counter reaches `0`, the icon flashes gold and triggers the summit exit ladder spawn sequence.
+
+
+## 3. Player Combat: Cane Strike & Enemy Stun System
+------------------------------------------------------------------------------
+* **The Philosophy**: The caretaker does not slaughter wildlife or mutants; you use your sturdy walking cane to pacify and navigate past them.
+* **Attack Input**:
+  - Dedicated attack key: Press `SPACEBAR` (or Joy 2nd Fire / `Down + Fire`).
+* **Animation Frames (from `player-animation` spritesheet)**:
+  - Uses the 3-frame swinging cane animation (Row 7 of the 20x24 spritesheet).
+  - Frame 1: Wind-up / cane raised overhead.
+  - Frame 2: Forward swing extension (cane reaches 1 full tile ahead).
+  - Frame 3: Follow-through recovery.
+* **Enemy Stun Mechanics**:
+  - If the cane hitbox connects with a moving enemy (Slimes, Snails, Wasps, Bats):
+    1. **Stunned State**: The enemy immediately halts in its tracks for ~4.0 seconds (200 frames PAL).
+    2. **Dizzy Visual**: The enemy freezes with spinning stars / dizzy expression.
+    3. **Safe Passage**: While stunned, the enemy's lethal collision is deactivated—the player can safely walk, jump, or climb right through/past them!
+    4. **Recovery Warning**: During the final 1.5 seconds of the stun (frames 125..200), the enemy flashes rapidly between its normal palette and pure white (`$0FFF`), warning the player that it is about to wake up and resume its patrol.
+* **Lethal Enemy Collision**:
+  - Touching an unstunned (active) enemy triggers the player's collapse/death animation (Row 6 / Row 9 death cels).
+  - The player loses a life and respawns safely on the nearest dry platform above the current water line (`PlayerSafeX/Y`).
+
+
+## 4. Context-Sensitive Oxygen Gauge (`SPR4` Hardware Sprite)
+------------------------------------------------------------------------------
+* **Dynamic Display (Hidden on Land)**:
+  - The 16x28 vertical `OXY` gauge in Column 1 (Screen X=16, Y=4) remains **completely hidden while the player is dry on platforms or ladders**, keeping the playfield clean.
+  - As soon as the player's mouth submerges beneath `WaterPixelY` (`PLAYER_HEAD_Y_OFFSET = 10`), `SPR4` smoothly becomes visible and begins depleting.
+  - When the player surfaces, the gauge refills at +4/frame; once 100% full and the player stands on dry ground, the gauge hides itself again.
+* **Deep Dives for Animal Rescues**:
+  - Because oxygen lasts 8.0 seconds (400 frames / 20 vertical scanlines), players can deliberately plunge into the rising water to rescue animals trapped in lower alcoves before surfacing.
+  - Critical warning: When 5 scanlines remain (100 units / ~2.0s), the liquid in the gauge pulses warning red.
+
+
+## 5. Block-Pushing Mechanics & Environmental Micro-Puzzles
+------------------------------------------------------------------------------
+* **Pushable Blocks / Crates (`BLOCK_PUSH`)**:
+  - Walking into a block pushes it smoothly with sub-tile interpolation along catwalks.
+* **Key Puzzle Interactions**:
+  1. **Filling Gaps**:
+     - Push a block off an upper platform so it falls into a pit or water trench, plugging the gap and creating a solid bridge to reach a stranded animal.
+  2. **Deploying Ladders (Floor Pressure Plates `[■]`)**:
+     - Push a heavy block onto a recessed floor switch. The plate depresses, releasing a counterweight that drops a retracted ladder from the ceiling, granting access to the next vertical tier.
+  3. **Extending Bridges**:
+     - Pushing blocks onto hydraulic terminals extends steel drawbridges across hazardous spans.
+  4. **Crushing Enemies from Above**:
+     - Drop a block onto a patrolling enemy walking beneath a ledge to squash them, clearing narrow tunnels permanently.
+  5. **Step-Up Stool**:
+     - Push a block against a high wall to hop onto it, gaining the 1-tile extra height needed to reach an otherwise out-of-reach ladder rung.
+
+
+## 6. Vertical Level Flow & Backtracking
+------------------------------------------------------------------------------
+* **The "Loop-Back" Design**:
+  - Levels are not simply a linear climb upward. To make levels engaging, players must navigate vertical loops:
+    1. Ascend the main shaft to reach a higher control gantry.
+    2. Solve a block-push puzzle on the upper tier (e.g. drop a block into a lower chute).
+    3. Descend back down into a side chamber to rescue an animal now accessible via the new block bridge.
+    4. Race back upward as the rising flood begins licking at your heels!
+* **High-Risk Flood Dives**:
+  - In later levels, some animals are intentionally positioned in low-lying sumps. By the time you solve the upper ladder drop, the sump is already underwater!
+  - You must calculate your 8-second oxygen budget: dive down into the flooded basement, grab the animal, and climb back out with your gauge flashing red.
+
+
+## 7. Multi-Level Campaign Themes & Progression
+------------------------------------------------------------------------------
+* **Level 1: The Old Mill & Cellars (Four Seasons / Industrial Amber)**:
+  - *Theme*: Wooden platforms, stone arches, slow-rising clear river flood.
+  - *Animals*: 3 stranded bunnies.
+  - *Puzzles*: Basic block pushing into 1-tile gaps, stunning slow cyan slimes with the cane, first introduction to ladder pressure plates.
+* **Level 2: The Storm Drainage Sump (Industrial Steel & Amber)**:
+  - *Theme*: Metal gantries, spinning cogs, toxic orange runoff.
+  - *Animals*: 4 puppies on isolated pipes.
+  - *Puzzles*: Dropping blocks from high catwalks to crush patrolling snails; vertical backtracking loop; flying bats requiring well-timed cane swings.
+* **Level 3: The Sunken Aqueduct & Reservoirs (Clean Cyber / Neon Blue)**:
+  - *Theme*: Ceramic conduits, high-pressure pipes, surging water level.
+  - *Animals*: 5 kittens trapped in alcoves.
+  - *Puzzles*: Deliberate underwater dives to pull submerged drainage levers that temporarily lower the water level; pushing floating crates across water surface to create stepping stones.
+* **Level 4: The Research Facility Flooding (Biomech / Reactor Core)**:
+  - *Theme*: Bio-containment pods, glowing coolant, fast surging floodwaters.
+  - *Animals*: 6 exotic experimental lab pets.
+  - *Puzzles*: Complex multi-stage push puzzles; flying mutant wasps patrolling ladder shafts; deep underwater dive with only 2 seconds of oxygen to spare; frantic final climb to the summit escape ladder!
