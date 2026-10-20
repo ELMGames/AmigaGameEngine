@@ -25,7 +25,8 @@
 				"entrypoint": "main.asm",
 				"args": [
 					"-bamigahunk",
-					"-Bstatic"
+					"-Bstatic",
+					"-s"
 				]
 			},
 			"problemMatcher": [],

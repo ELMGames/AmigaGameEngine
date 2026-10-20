@@ -23,6 +23,13 @@
 
     INCDIR     "include"
     INCDIR     "include/resources"
+    INCDIR     "include/resources/core"
+    INCDIR     "include/resources/audio"
+    INCDIR     "include/resources/gameplay"
+    INCDIR     "include/resources/graphics"
+    INCDIR     "include/resources/levels"
+    INCDIR     "include/resources/screens"
+    INCDIR     "include/resources/system"
 
     INCLUDE    "hw.i"
     INCLUDE    "funcdef.i"
@@ -53,6 +60,7 @@
 Main:
     movem.l    d2-d7/a2-a6,-(sp)   ; callee-saved registers (restored by QuitToOS)
     move.l     sp,SavedOSStack     ; CLI stack, restored on exit
+    bsr        CheckCustomLevel    ; probe test.lvl or CLI argument before OS teardown
     bsr        SystemSave          ; blank OS display, Forbid, snapshot vectors/enables
 
 
@@ -63,7 +71,7 @@ Main:
 ; the game's own stack, calls Init to set up game data structures, installs
 ; the VBlank interrupt, then runs the game from MainLoop.
 ;
-; Frame model: VBlankTick (the level-3 ISR) only counts frames â€” ALL game
+; Frame model: VBlankTick (the level-3 ISR) only counts frames — ALL game
 ; logic runs here in the mainline, once per FramePending signal.  Long
 ; operations (asset decompression, screen setup) are therefore safe: they
 ; simply span several frames without blocking the keyboard or music
@@ -99,13 +107,13 @@ MainLoop:
     clr.w      FramePending(a5)    ; consume it (missed frames are skipped, not queued)
 
     ; Raster profiler: DebugMode=2 (F5 then F3) marks CPU time with a colour
-    ; bar â€” red normally, yellow once any frame has overrun its VBlank budget.
+    ; bar — green normally (healthy 50 FPS budget), red once any frame has overrun.
     cmp.w      #2,DebugMode(a5)
     bne.s      .no_bar_start
     move.w     #DEBUG_RASTER_COLOR,d0
     tst.w      VBlankOverrunCount(a5)
     beq.s      .bar_normal
-    move.w     #$ff0,d0
+    move.w     #DEBUG_RASTER_OVERRUN,d0
 .bar_normal
     move.w     d0,COLOR00(a6)
 .no_bar_start
@@ -134,6 +142,16 @@ QuitToOS:
     bsr        AudioStopMod
     bsr        AudioRemove         ; uninstall the PTPlayer CIA-B interrupt
     bsr        SystemRestore       ; vectors, copper, DMA/INTENA, OS view
+
+    ; Free custom level buffer if one was allocated via AllocMem
+    tst.l      CustomLevelAllocPtr(a5)
+    beq.s      .no_custom_mem
+    move.l     4.w,a6              ; ExecBase
+    move.l     CustomLevelAllocPtr(a5),a1
+    move.l     CustomLevelAllocSize(a5),d0
+    jsr        -$D2(a6)            ; _LVOFreeMem
+.no_custom_mem:
+
     move.l     SavedOSStack,sp
     movem.l    (sp)+,d2-d7/a2-a6
     moveq      #0,d0               ; CLI return code: OK
@@ -152,7 +170,8 @@ QuitToOS:
 ;==============================================================================
 
 Init:
-    move.w     #GAME_INIT,GameStatus(a5)
+    move.w     #0,LevelId(a5)
+    move.w     #FLASH_SETUP,GameStatus(a5)
     clr.w      SlowMode(a5)
     clr.w      SlowModeHold(a5)
     clr.w      PrevKeyS(a5)
@@ -192,7 +211,7 @@ Init:
 ;==============================================================================
 
 FaultTrap:
-    move.w     #$0f00,$dff180      ; COLOR00 = solid red â€” visible on any display mode
+    move.w     #$0f00,$dff180      ; COLOR00 = solid red — visible on any display mode
     bra.s      FaultTrap
 
 ;==============================================================================
@@ -202,13 +221,13 @@ FaultTrap:
 ; bit 0 set), then record the highest value reached by VHPOSR bits 15:8 (the
 ; low 8 bits of the beam counter) before VBlank resets it.
 ;
-;   PAL : max value â‰ˆ $38 (line 312 = $138, low byte = $38)
-;   NTSC: max value â‰ˆ $06 (line 262 = $106, low byte = $06)
-;   Threshold $20 (line 288).  Below threshold â†’ NTSC.
+;   PAL : max value ~ $38 (line 312 = $138, low byte = $38)
+;   NTSC: max value ~ $06 (line 262 = $106, low byte = $06)
+;   Threshold $20 (line 288).  Below threshold -> NTSC.
 ;
 ; On NTSC: patches cpGameDIW+2 (DIWSTRT value) and cpGameDIW+6 (DIWSTOP value)
 ; to centre the 216-line game display in the NTSC visible area.
-; cpLoading is left untouched â€” its 200-line display (lines 44-244) already
+; cpLoading is left untouched — its 200-line display (lines 44-244) already
 ; fits within the NTSC visible range.
 ;
 ; Note: cpVHSDistort scanline WAITs are not adjusted here; VHS distortion
@@ -235,7 +254,7 @@ DetectNTSC:
     move.w      VHPOSR(a6),d0
     lsr.w       #8,d0                   ; d0.w = beam bits 7..0 (low byte of V counter)
     cmp.w       d1,d0
-    blt         .dn_done                ; value dropped (VBlank wrap) â†’ stop
+    blt         .dn_done                ; value dropped (VBlank wrap) -> stop
     move.w      d0,d1                   ; update max
     btst        #0,VPOSR+1(a6)
     bne         .dn_spin                ; continue while bit 8 still set
@@ -243,15 +262,15 @@ DetectNTSC:
 
     ; d1 = max low-byte value while line was >= 256
     ; PAL: ~$38 (line 312). NTSC: ~$06 (line 262). Threshold: $20 (line 288).
-    move.w      #WINDOW_Y_START,SpriteYOffset(a5)   ; default: PAL raster origin for SpriteCoord
+    move.w      #WINDOW_Y_START,SpriteYOffset(a5)   ; default: PAL raster origin for HUD / bubble sprites
     move.w      #1,IsPAL(a5)            ; default: PAL
     cmp.w       #$20,d1
-    bge         .dn_pal                 ; >= $20 â†’ line reached 288+, must be PAL
+    bge         .dn_pal                 ; >= $20 -> line reached 288+, must be PAL
 
     ; NTSC detected: recentre the 216-line game display (Y start=$1C, stop low=$F4)
     move.w      #NTSC_WINDOW_START,cpGameDIW+2   ; patch DIWSTRT value
     move.w      #NTSC_WINDOW_STOP,cpGameDIW+6    ; patch DIWSTOP value
-    move.w      #NTSC_WINDOW_Y_START,SpriteYOffset(a5)  ; patch sprite raster origin for NTSC
+    move.w      #NTSC_WINDOW_Y_START,SpriteYOffset(a5)  ; patch sprite raster origin for NTSC (HUD / bubble sprites)
     clr.w       IsPAL(a5)               ; NTSC: clear PAL flag
 
     ; Shift copper background (cpGameSky) 16 scanlines earlier for NTSC:
@@ -329,7 +348,7 @@ DetectOCS:
 ; Writes the address of VBlankTick into the level-3 autovector ($6c) and
 ; enables the master interrupt gate (INTF_INTEN) plus the vertical-blank
 ; interrupt (INTF_VERTB).  No other level-3 source (Copper, blitter) is
-; enabled â€” if you add a copper interrupt later, VBlankTick must also
+; enabled — if you add a copper interrupt later, VBlankTick must also
 ; acknowledge INTF_COPER or the machine will hang in an interrupt storm.
 ;
 ; After this call MainLoop consumes one FramePending per video frame.
@@ -351,7 +370,7 @@ StartVBlank:
 ;
 ; Fires once per video frame (~50 Hz PAL / ~60 Hz NTSC) via the level-3
 ; autovector at $6c.  Deliberately tiny: it only acknowledges the interrupt
-; and counts the frame â€” ALL game logic runs in MainLoop.  Music replay is
+; and counts the frame — ALL game logic runs in MainLoop.  Music replay is
 ; driven separately by PTPlayer's CIA-B interrupt (level 6).
 ;
 ; Sequence:
@@ -363,7 +382,7 @@ StartVBlank:
 ;      chipset revisions need two writes to clear reliably).
 ;   4. Increment TickCounter (free-running frame counter for animations).
 ;   5. If MainLoop has not yet consumed the previous FramePending, count a
-;      frame overrun (debug telemetry, shown as a yellow raster bar).
+;      frame overrun (debug telemetry, turns F3 raster bar red).
 ;   6. Increment FramePending to release MainLoop for the next frame.
 ;==============================================================================
 
@@ -399,51 +418,62 @@ VBlankTick:
 ; directly without any linking step.
 ;==============================================================================
 
-    include    "system.asm"
-    include    "keyboard.asm"
-    include    "tools.asm"
-    include    "levelutils.asm"
-    include    "screenutils.asm"
-    include    "tilemap.asm"
-    include    "actors.asm"
-    include    "zx0_faster.asm"
-    include    "spritetools.asm"
-    include    "hud_sprites.asm"
-    include    "player.asm"
-    include    "undo.asm"
-    include    "vhs_rewind.asm"
-    include    "controls.asm"
-    include    "loading.asm"
-    include    "levelcomplete.asm"
-    include    "char_bltroutines.asm"
-    include    "bigfont.asm"
-    include    "titlescreen.asm"
-    include    "instructions.asm"
-    include    "gamecomplete.asm"
-    include    "gamestatus.asm"
-    include    "audio.asm"
+; --- System & Hardware Drivers ---
+    include    "system/system.asm"
+    include    "system/keyboard.asm"
+    include    "system/tools.asm"
+    include    "system/controls.asm"
+    include    "system/zx0_faster.asm"
+
+; --- Graphics & Blitter Routines ---
+    include    "graphics/screenutils.asm"
+    include    "graphics/spritetools.asm"
+    include    "graphics/hud_sprites.asm"
+    include    "graphics/char_bltroutines.asm"
+    include    "graphics/bigfont.asm"
+
+; --- Core Gameplay & Entities ---
+    include    "gameplay/levelutils.asm"
+    include    "gameplay/tilemap.asm"
+    include    "gameplay/actors.asm"
+    include    "gameplay/player.asm"
+    include    "gameplay/undo.asm"
+    include    "gameplay/vhs_rewind.asm"
+    include    "gameplay/gamestatus.asm"
+    include    "gameplay/customlevel.asm"
+
+; --- Game Screens & States ---
+    include    "screens/loading.asm"
+    include    "screens/levelcomplete.asm"
+    include    "screens/titlescreen.asm"
+    include    "screens/instructions.asm"
+    include    "screens/credits.asm"
+    include    "screens/gamecomplete.asm"
+    include    "screens/gameover.asm"
+    include    "screens/flashscreen.asm"
+
+; --- Audio Subsystems ---
+    include    "audio/audio.asm"
     include    "ptplayer/ptplayer.asm"
 
 ;==============================================================================
 ; Fast RAM data section  (data_fast)
 ;
-; Read-only tables and compressed asset pointers that do not need to be in
-; Chip RAM.  Fast RAM is significantly faster to access than Chip RAM on
-; expanded Amigas, so lookup tables, level data, and palette data live here.
+; Read-only tables and asset data that do not need to be in Chip RAM.
+; Fast RAM is significantly faster to access than Chip RAM on expanded Amigas,
+; so lookup tables, level definitions, and palette data live here.
 ;
 ; Contents:
-;   Quartic / Quadratic / Sinus  - pre-computed easing / sine tables (binary)
-;   assets.asm                   - tile asset tables and ZX0-compressed tile data
+;   Quadratic / Sinus            - pre-computed easing / sine tables (binary)
 ;   SpritePal                    - hardware sprite palette (sprites.pal)
-;   TilesPal0..4                 - per-chapter tile palettes (tiles_N.pal)
-;   LevelData                    - all 100 levels packed as raw 88-byte maps
-;   WallpaperBaseTop/Base        - default wallpaper border tile templates
-;   LevelCountRaw                - level counter UI source graphic (ui_4.bin)
+;   CopperSkyTable               - copper background gradient line tables
+;   Level Definitions            - multi-layer TMX definitions (level_01_entities.asm..level_04_entities.asm)
+;   LevelTable                   - pointer table pointing to each LevelDef
+;   Michroma font                - proportional font data for placards/banners
 ;==============================================================================
 
     section    data_fast,data
 
-;------------------------------------------------------------------------------
 ;------------------------------------------------------------------------------
 ; Easing / animation tables  (pre-computed, accessed by index each frame)
 ;
@@ -469,49 +499,118 @@ CopperSkyTable:
     incbin     "assets/graphics/copper/copper_sky.bin"
     even
 
-    include    "level_01_entities.asm"
+    include    "levels/level_01_entities.asm"
+    include    "levels/level_02_entities.asm"
+    include    "levels/level_03_entities.asm"
+    include    "levels/level_04_entities.asm"
+    include    "levels/level_05_entities.asm"
+    include    "levels/level_06_entities.asm"
 
 ;------------------------------------------------------------------------------
 ; Master Level Table (Pointers to Level Definitions)
-LEVEL_TABLE_COUNT = 1
-
+;
+; Contains 32-bit pointers to each level's LevelDef structure, terminated by 0.
+; LevelInit accesses this table via LevelIndex(a5) * 4 to unpack the level's
+; tile layers (Background, Platform, Ladder, Water, Foreground), camera bounds,
+; player spawn coordinates, enemy patrol routes, animal friends, and oxygen kits.
+; LEVEL_TABLE_COUNT is defined in const.asm.
+;------------------------------------------------------------------------------
 LevelTable:
     dc.l       Level_01_Def
+    dc.l       Level_02_Def
+    dc.l       Level_03_Def
+    dc.l       Level_04_Def
+    dc.l       Level_05_Def
+    dc.l       Level_06_Def
     dc.l       0                       ; null terminator
 
 ;------------------------------------------------------------------------------
-; Level counter UI source graphic and digit font.
-; REMOVED: UI buttons removed from template. Files moved to TEMP/assets/.
-; CUSTOMISE: To restore, move ui_4.bin and levelfont.bin back from TEMP/
-; and replace these stubs with the original incbin lines.
-;------------------------------------------------------------------------------
-LevelCountRaw:
-    dc.b    0   ; stub - ui_4.bin moved to TEMP/assets/graphics/ui/
-    even
-LevelFont:
-    dc.b    0   ; stub - levelfont.bin moved to TEMP/assets/font/
-    even
-
-;------------------------------------------------------------------------------
 ; Michroma proportional "hero text" font (placard/warning screens, e.g. the
-; PURGE flash effect) â€” CPU-read only (bigfont.asm), so Fast RAM like the
-; other fonts above. See assets/font/generate_michroma_font.py for how this
+; GAME OVER / PURGE flash effects) — CPU-read only (bigfont.asm), so Fast RAM like
+; the other fonts above. See assets/font/generate_michroma_font.py for how this
 ; was rasterised and include/resources/bigfont.asm for the blit routines.
 ;------------------------------------------------------------------------------
-    include    "michroma_font_data.asm"
+    include    "graphics/michroma_font_data.asm"
+
 
 ;------------------------------------------------------------------------------
-; ZX0-compressed player hardware sprites; decompressed into the PlayerHWSprites
-; chip buffer by CopyOverlayAssets (loading.asm) after the loading screen.
+; Loading screen assets & tape audio (Fast RAM — CPU read / staged into Chip RAM)
+;
+; LoadingPal, LoadingRawZ, and tape audio PCM samples (zxsfx.asm) are offloaded
+; to Fast RAM.  During boot loading setup, LoadingStageAudio dynamically stages
+; the PCM samples into unused space in NonDisplayScreen (+40000) for Paula DMA.
+; This saves ~53.7 KB of permanent Chip RAM.
 ;------------------------------------------------------------------------------
-PlayerHWSprites_FastMem:
-    incbin     "assets/graphics/sprites/player_hwsprites.zx0"
+LoadingPal:
+    incbin     "assets/graphics/title/template.pal"
     even
 
-;==============================================================================
-; Post-loading overlay source data  (Fast RAM: ZX0-compressed; not chip-DMA)
-;==============================================================================
-    section    data_overlay_src,data
+LoadingRawZ:
+    incbin     "assets/graphics/title/template.zx0"
+    even
+
+    include    "audio/zxsfx.asm"
+
+;------------------------------------------------------------------------------
+; Intro splash screen assets & fanfare audio (Fast RAM — staged into Chip RAM at boot)
+;------------------------------------------------------------------------------
+TitleLogoRaw:
+    incbin     "assets/graphics/title/AGE_title.raw"
+    even
+
+TitleLogoPal:
+    incbin     "assets/graphics/title/AGE_title.pal"
+    even
+
+SfxIntroFanfare:
+    dc.l    0                           ; sfx_ptr dynamically patched by FlashScreenSetup
+    dc.w    (SfxIntroFanfare_RawEnd-SfxIntroFanfare_Raw)/2
+    dc.w    SFX_DEFAULT_PERIOD
+    dc.w    64                          ; full volume intro splash trumpet fanfare
+    dc.b    SFX_AUTO_CHANNEL
+    dc.b    127                         ; absolute highest priority intro fanfare
+
+SfxIntroFanfare_Raw:
+    incbin      "assets/fx/sfx_intro_fanfare.raw"
+    even
+SfxIntroFanfare_RawEnd:
+
+;------------------------------------------------------------------------------
+; Menu screen title banner & victory duckling (Fast RAM — staged into Chip RAM)
+;------------------------------------------------------------------------------
+TitleDuckRaw:
+    incbin     "assets/graphics/title/duck_rescue_title.raw"
+    even
+
+TitleDuckPal:
+    incbin     "assets/graphics/title/duck_rescue_title.pal"
+    even
+
+GCDucklingRaw:
+    incbin     "assets/graphics/title/duckling_complete.raw"
+    even
+
+;------------------------------------------------------------------------------
+; Level-complete player headshots & palettes (Fast RAM — staged into Chip RAM)
+;------------------------------------------------------------------------------
+HeadshotDeniseRaw:
+    incbin      "assets/graphics/headshots/headshot_denise_128x64.raw"
+    even
+
+HeadshotDenisePal:
+    incbin      "assets/graphics/headshots/headshot_denise.pal"
+    even
+
+;------------------------------------------------------------------------------
+; Title screen music (Fast RAM — staged into NonDisplayScreen+10000 at boot/title)
+; Staged dynamically by TitleSetup into NonDisplayScreen in Chip RAM, then
+; played via PTPlayer. Stopped by AudioStopMod when entering gameplay.
+; Saves 46,414 bytes of permanent Chip RAM!
+;------------------------------------------------------------------------------
+TitleScreenMusicMod:
+    incbin     "assets/music/heatwave_cruise.mod"
+    even
+TitleScreenMusicModEnd:
 
 ;==============================================================================
 ; Chip RAM data section  (data_chip)
@@ -519,39 +618,18 @@ PlayerHWSprites_FastMem:
 ; All data that must be in Chip RAM because it is accessed by the DMA hardware
 ; (Copper, Blitter, Agnus sprite DMA, audio DMA):
 ;
-;   copperlists.asm  - cpTest and cpLoading copper list programs
-;   LoadingRaw         - raw interleaved bitplane data for the loading screen logo
-;   LoadingPal         - loading screen palette (with extra star colour entries)
+;   copperlists.asm     - cpGame and cpLoading copper list programs
+;   LevelMod            - gameplay music module
+;   gamesfx.asm         - in-game sound effect waveforms
+;   GameTiles*          - tilemap graphics & mask
+;   EnemySprites*       - enemy sprites & masks
+;   DizzyStars*         - dizzy star sprites & mask
+;   AnimalSprites*      - animal friend sprites & mask
 ;==============================================================================
 
     section    data_chip,data_c
 
-    include    "copperlists.asm"
-
-;------------------------------------------------------------------------------
-; Title screen logo (blitter source â€” must be Chip RAM).
-; Placed BEFORE the loading-screen overlay region so it survives after loading.
-;
-; TitleLogoRaw: 288x64, 3 bitplanes stored plane-by-plane (36 bytes/row,
-;               2304 bytes/plane, 6912 bytes total).
-; TitleLogoPal: 8 big-endian $0RGB colour words; colour 0 = transparent.
-; Both generated by tools/convert_assets.py from AGE_title.png.
-;------------------------------------------------------------------------------
-TitleLogoRaw:
-    incbin     "assets/graphics/title/AGE_title.raw"
-TitleLogoPal:
-    incbin     "assets/graphics/title/AGE_title.pal"
-
-;------------------------------------------------------------------------------
-; Title screen music (Paula sample DMA â€” must be Chip RAM).
-; Also placed BEFORE the overlay region so it remains available every time
-; the title screen is revisited.  Started by AudioPlayTitleMusic from
-; TitleSetup; PTPlayer loops the module endlessly until AudioStopMod is
-; called when leaving the title screen.
-;------------------------------------------------------------------------------
-TitleScreenMusicMod:
-    incbin     "assets/music/supremacy_title.mod"
-    even
+    include    "graphics/copperlists.asm"
 
 ;------------------------------------------------------------------------------
 ; Gameplay graphics and music (blitter / Paula DMA â€” must be Chip RAM).
@@ -560,16 +638,26 @@ TitleScreenMusicMod:
 ;
 ;   LevelMod     - gameplay music module (AudioPlayLevelMusic, Phase B)
 ;------------------------------------------------------------------------------
-LevelMod:
+GameCompleteMod:
     incbin     "assets/music/10kdub.mod"
     even
 
+LevelMod:
+    incbin     "assets/music/xlr8.mod"
+    even
+
+;------------------------------------------------------------------------------
+; In-Game Sound Effects (Paula sample DMA — must be Chip RAM).
+;------------------------------------------------------------------------------
+    include    "audio/gamesfx.asm"
+    even
+
 GameTilesRaw:
-    incbin     "assets/graphics/tiles/FourSeasons.tiles_176x256.raw"
+    incbin     "assets/graphics/tiles/tileset-compact_176x80.raw"
     even
 
 GameTilesMsk:
-    incbin     "assets/graphics/tiles/FourSeasons.tiles_176x256.msk"
+    incbin     "assets/graphics/tiles/tileset-compact_176x80.msk"
     even
 
 EnemySpritesRaw:
@@ -584,17 +672,6 @@ EnemySpritesMsk:
     incbin     "assets/graphics/enemies/enemies_64x128.msk"
     even
 
-PlayerRaw:
-    incbin     "assets/graphics/sprites/player_bobs_128x144.raw"
-    even
-
-PlayerMsk:
-    incbin     "assets/graphics/sprites/player_bobs_128x144.msk"
-    even
-
-PlayerWhiteRaw:
-    incbin     "assets/graphics/sprites/player_bobs_128x144_white.raw"
-    even
 
 DizzyStarsRaw:
     incbin     "assets/graphics/enemies/dizzy_stars_64x16.raw"
@@ -612,30 +689,35 @@ AnimalSpritesMsk:
     incbin     "assets/graphics/animals/animals_64x48.msk"
     even
 
-
-; (The game complete screen reuses TitleLogoRaw/TitleLogoPal above â€” no
-; dedicated logo assets; see GC_LOGO_OFF in gamecomplete.asm.)
-
 ;------------------------------------------------------------------------------
-; Loading screen overlay region  (chip RAM that MAY be reused after loading)
+; Player Character BOB Master Sheets (Chip RAM — Blitter DMA source)
 ;
-; LoadingPal, LoadingRawZ, and the ZX tape-load audio (zxsfx.asm) are only
-; needed while the loading screen is on display.  Once LoadingRun transitions
-; to TITLE_SETUP this region can be overwritten with in-game assets (see
-; CopyOverlayAssets in loading.asm for the hook â€” a stub in the template).
-;
-; Ordering guarantee: everything needed AFTER the loading screen
-; (TitleLogoRaw/Pal, TitleScreenMusicMod) is placed BEFORE this region, so
-; the title screen keeps working no matter what the overlay is reused for.
+; Denise's right-facing master graphics (24 frames, 16 colours, 4 bitplanes).
+; Pre-loaded into Chip RAM so the Blitter can read them directly without
+; runtime copying.
+; Total: 3 * 9,216 = 27,648 bytes.
 ;------------------------------------------------------------------------------
-LoadingPal:
-    incbin     "assets/graphics/title/template.pal"
+PlayerRightRaw:
+PlayerDeniseRaw:
+    incbin     "assets/graphics/sprites/player_bobs_female_128x144.raw"
+    even
 
-LoadingRawZ:
-    incbin     "assets/graphics/title/template.zx0"
-   even                        ; ZX0 size may be odd
+PlayerRightMsk:
+PlayerDeniseMsk:
+    incbin     "assets/graphics/sprites/player_bobs_female_128x144.msk"
+    even
 
-    include "zxsfx.asm"
+PlayerRightWhiteRaw:
+PlayerDeniseWhiteRaw:
+    incbin     "assets/graphics/sprites/player_bobs_female_128x144_white.raw"
+    even
+
+
+
+; (The game complete screen uses GCDucklingRaw and TitleDuckPal above;
+; see gamecomplete.asm.)
+
+
 
 ;==============================================================================
 ; Fast RAM BSS section  (mem_fast)
@@ -709,12 +791,18 @@ DisplayScreen:
 NonDisplayScreen:
     ds.b       LEVEL_SCREEN_SIZE
 
-TileSet:
-    ds.b       TILE_SIZE           ; minimal tile scratch buffer (480 bytes)
-TileMask:
-    ds.b       TILE_SIZE           ; minimal tile mask scratch buffer (480 bytes)
 
-; Left-facing flipped player BOB buffers (generated at startup by PlayerInitFlippedSprites)
+;------------------------------------------------------------------------------
+; Left-facing flipped player BOB buffers (generated at boot by PlayerInitFlippedSprites)
+;
+; To minimise disk footprint and asset duplication, only right-facing player
+; BOB frames are stored on disk (player_bobs_female_128x144.raw, .msk, and _white.raw).
+; At boot, PlayerInitFlippedSprites performs a horizontal mirror on all 24 frames
+; (6 rows of 4 cels, 32px cell storage containing 24px active graphics) into
+; these Chip RAM buffers.  The blitter routines index these buffers directly
+; when Player_Facing(a4) < 0 (facing left).
+; Total per buffer: 6 rows * 1536 bytes/row = 9,216 bytes.
+;------------------------------------------------------------------------------
 PlayerLeftRaw:
     ds.b       PLAYER_BOB_TOTAL_BYTES ; 9,216 bytes
 PlayerLeftMsk:

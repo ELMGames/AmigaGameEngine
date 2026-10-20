@@ -17,6 +17,7 @@ Outputs:
   - assets/graphics/animals/duckling_anim.gif
 """
 
+import sys
 from pathlib import Path
 from PIL import Image, ImageDraw
 
@@ -24,7 +25,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = PROJECT_ROOT / "assets" / "graphics" / "animals"
 SRC_ANIMALS = OUT_DIR / "animals_16x16.png"
 
-# In-game 16-color OCS playfield palette (matches FourSeasons tileset & LevelDef_Palette)
+# In-game 16-color OCS playfield palette (matches compact tileset & LevelDef_Palette)
 DEFAULT_PALETTE_OCS = [
     (0, 0, 0),       # 0: Transparent ($0000)
     (1, 11, 14),     # 1: 0x1BE Vibrant Cyan
@@ -401,11 +402,10 @@ def convert_animal_spritesheet():
     with open(compat_msk, "wb") as f:
         f.write(msk_bytes + pad)
 
-    # Export preview contact sheet
-    export_preview_sheet(remapped_img)
-
-    # Export animated GIFs
-    export_animated_gifs(remapped_img)
+    # Export preview contact sheet and animated GIFs (optional)
+    if "--preview" in sys.argv:
+        export_preview_sheet(remapped_img)
+        export_animated_gifs(remapped_img)
 
 
 def export_preview_sheet(remapped_img: Image.Image):

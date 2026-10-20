@@ -49,9 +49,6 @@ BLOCK_DIRT        = 4
 BLOCK_SOLID       = 5
 BLOCK_ENEMYFLOAT  = 6
 BLOCK_PLAYERSTART = 7
-BLOCK_MILLIESTART = BLOCK_PLAYERSTART
-BLOCK_COCOON      = 11
-BLOCK_ACID        = 12
 
 ATTR_MAP = {
     "empty": ATTR_EMPTY,
@@ -71,7 +68,6 @@ ATTR_MAP = {
     "hazard": ATTR_HAZARD,
     "spikes": ATTR_HAZARD,
     "spike": ATTR_HAZARD,
-    "acid": ATTR_HAZARD,
     "lava": ATTR_HAZARD,
     "3": ATTR_HAZARD,
     "passthrough": ATTR_PASSTHROUGH,
@@ -82,7 +78,7 @@ ATTR_MAP = {
 }
 
 # Default 16-color OCS palette for level graphics (matches GameTilesRaw + 22528)
-# Tuned for vibrant enemy sprites (cyan, teal, red, maroon, orange, gold, slate) and four-seasons tiles
+# Tuned for vibrant enemy sprites (cyan, teal, red, maroon, orange, gold, slate) and compact tileset tiles
 DEFAULT_PALETTE_OCS = [
     (0, 0, 0),      # 0: Transparent ($0000)
     (1, 11, 14),    # 1: 0x1BE Vibrant Cyan (tile 122 / slimes / ghost)
@@ -101,6 +97,59 @@ DEFAULT_PALETTE_OCS = [
     (1, 7, 7),      # 14: 0x177 Vibrant Teal (Slime & Ghost shadow)
     (12, 10, 8)     # 15: 0xCA8 Tan / Warm Stone / Peach
 ]
+
+# Mapping from (tileset_name, local_id) -> Amiga GameTilesRaw compact index
+TILESET_TO_COMPACT = {
+    # tileset-platforms (firstgid=1)
+    ("tileset-platforms", 0): 1,   # Grass Left (src 1)
+    ("tileset-platforms", 1): 2,   # Grass Mid (src 2)
+    ("tileset-platforms", 2): 3,   # Grass Right (src 3)
+    ("tileset-platforms", 3): 4,   # Grass Corner (src 4)
+    ("tileset-platforms", 4): 11,  # Stone Left (src 18)
+    ("tileset-platforms", 5): 12,  # Stone Mid (src 19)
+    ("tileset-platforms", 6): 13,  # Stone Right (src 20)
+    ("tileset-platforms", 7): 15,  # Platform Ledge (src 29)
+    ("tileset-platforms", 8): 8,   # Dirt Mid / Bedrock (src 14)
+    ("tileset-platforms", 9): 7,   # Dirt Corner (src 12)
+    ("tileset-platforms", 10): 9,  # Dirt Variant (src 15)
+    ("tileset-platforms", 11): 10, # Earth Variant (src 17)
+    ("tileset-platforms", 12): 5,  # Grass Variant 1 (src 7)
+    ("tileset-platforms", 13): 6,  # Grass Variant 2 (src 9)
+
+    # tileset-plants (firstgid=17)
+    ("tileset-plants", 0): 20,     # Yellow Tree Top (src 39)
+    ("tileset-plants", 1): 16,     # Green Tree Top (src 34)
+    ("tileset-plants", 2): 23,     # Branch 1 (src 44)
+    ("tileset-plants", 3): 17,     # Tree Foliage Canopy (src 35)
+    ("tileset-plants", 4): 29,     # Yellow Tree Mid (src 50)
+    ("tileset-plants", 5): 24,     # Green Tree Mid (src 45, moved from tile 6)
+    ("tileset-plants", 6): 25,     # Branch 2 (src 46)
+    ("tileset-plants", 7): 14,     # Tree Canopy Edge (src 21)
+    ("tileset-plants", 8): 34,     # Yellow Tree Base (src 61)
+    ("tileset-plants", 9): 30,     # Green Tree Base (src 56, moved from tile 17)
+    ("tileset-plants", 10): 40,    # Tree Trunk Root (src 72)
+    ("tileset-plants", 11): 22,    # Foliage Accent (src 43)
+    ("tileset-plants", 12): 31,    # Palm Top-L (src 58)
+    ("tileset-plants", 13): 32,    # Palm Top-M (src 59)
+    ("tileset-plants", 14): 33,    # Palm Top-R (src 60)
+    ("tileset-plants", 15): 45,    # Rock Accent / Plant on Rock (src 92)
+    ("tileset-plants", 16): 37,    # Palm Mid-L (src 69)
+    ("tileset-plants", 17): 38,    # Palm Mid-Trunk (src 70)
+    ("tileset-plants", 18): 39,    # Palm Mid-R (src 71)
+    ("tileset-plants", 21): 41,    # Palm Trunk Base / Roots (src 81)
+
+    # tileset-water (firstgid=45)
+    ("tileset-water", 0): 47,      # Water Surface (src 104)
+    ("tileset-water", 1): 48,      # Water Deep (src 115)
+
+    # tileset-ladders (firstgid=47)
+    ("tileset-ladders", 0): 35,    # Ladder Top (src 66)
+    ("tileset-ladders", 1): 36,    # Ladder Mid (src 67)
+
+    # tileset-entities (firstgid=49)
+    ("tileset-entities", 0): 18,   # Pushable Crate (src 37)
+    ("tileset-entities", 1): 46,   # Oxygen Tank (src 95)
+}
 
 
 def asm_line(op: str, val: str, comment: str = "", col: int = 40) -> str:
@@ -259,8 +308,18 @@ def parse_tileset_full(tmx_dir: Path, tileset_elem) -> dict:
         category = "enemies"
     elif "friend" in ident or "animal" in ident:
         category = "friends"
-    elif "player" in ident or "millie" in ident:
+    elif "player" in ident:
         category = "player"
+    elif "platform" in ident:
+        category = "platforms"
+    elif "plant" in ident:
+        category = "plants"
+    elif "ladder" in ident:
+        category = "ladders"
+    elif "entit" in ident:
+        category = "entities"
+    elif "water" in ident:
+        category = "water"
     else:
         category = "world"
 
@@ -338,7 +397,10 @@ def convert_tileset_image(tmx_dir: Path, tileset_elem, project_root: Path):
         return None
 
     img_path = (tsx_dir / img_source).resolve()
-    if not img_path.exists():
+    compact_png = project_root / "assets" / "graphics" / "tiles" / "tileset-compact.png"
+    if compact_png.exists():
+        img_path = compact_png
+    elif not img_path.exists():
         return None
 
     print(f"  [*] Converting tileset image: {img_path.name}")
@@ -368,7 +430,7 @@ def convert_tileset_image(tmx_dir: Path, tileset_elem, project_root: Path):
                 bo = round(b * 15 / 255)
                 indexed[y][x] = nearest_pal(ro, go, bo)
 
-    semi_transparent_tiles = {104, 115}
+    semi_transparent_tiles = {47, 48, 104, 115}
     for tile in root.findall("tile"):
         tid_str = tile.attrib.get("id")
         if tid_str is not None:
@@ -414,8 +476,8 @@ def convert_tileset_image(tmx_dir: Path, tileset_elem, project_root: Path):
 
     tiles_dir = project_root / "assets" / "graphics" / "tiles"
     tiles_dir.mkdir(parents=True, exist_ok=True)
-    raw_path = tiles_dir / "FourSeasons.tiles_176x256.raw"
-    msk_path = tiles_dir / "FourSeasons.tiles_176x256.msk"
+    raw_path = tiles_dir / f"{img_path.stem}_{w}x{h}.raw"
+    msk_path = tiles_dir / f"{img_path.stem}_{w}x{h}.msk"
 
     with open(raw_path, "wb") as f:
         f.write(raw_bytes)
@@ -437,20 +499,235 @@ def convert_tileset_image(tmx_dir: Path, tileset_elem, project_root: Path):
 def write_binary_map(file_path: Path, width: int, height: int, tile_indices: list):
     """
     Write Amiga binary map format:
-      Offset 0..3: uint32 Width (Little-Endian)
-      Offset 4..7: uint32 Height (Little-Endian)
-      Offset 8+:   uint16 Tile Index words (Little-Endian)
+      Offset 0..3: uint32 Width (Big-Endian)
+      Offset 4..7: uint32 Height (Big-Endian)
+      Offset 8+:   uint16 Tile Index words (Big-Endian)
     """
     file_path.parent.mkdir(parents=True, exist_ok=True)
     with open(file_path, "wb") as f:
         # 8-byte header
-        f.write(struct.pack("<II", width, height))
+        f.write(struct.pack(">II", width, height))
         # Tile index grid
         for tile in tile_indices:
-            f.write(struct.pack("<H", tile & 0xFFFF))
+            f.write(struct.pack(">H", tile & 0xFFFF))
 
 
-def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: str = None):
+def align4(b: bytearray):
+    """Align bytearray to 4-byte boundary."""
+    while len(b) % 4 != 0:
+        b.append(0)
+
+
+def package_level_binary(
+    package_path: Path,
+    width: int,
+    height: int,
+    min_cam_y: int,
+    max_cam_y: int,
+    init_cam_y: int,
+    cam_margin_top: int,
+    cam_margin_bottom: int,
+    player_start: dict,
+    player2_start: dict,
+    enemies: list,
+    friends: list,
+    pushes: list,
+    ladders: list,
+    solids: list,
+    triggers: list,
+    hazards: list,
+    bridges: list,
+    oxygen_refills: list,
+    pal: list,
+    level_title: str,
+    level_sub_title: str,
+    access_code: str,
+    gamemap: list,
+    layer_grids: list
+):
+    """
+    Package level into standalone .lvl binary file ('ALVL').
+    Layout:
+      0..7:    Header (ALVL magic, version 1, flags 0)
+      8..133:  LevelDef struct (126 bytes)
+      134..135: Alignment padding (2 bytes)
+      136+:    Data sections (palette, text, entities, gamemap, layers, layer list)
+    """
+    package_path = Path(package_path).resolve()
+    package_path.parent.mkdir(parents=True, exist_ok=True)
+
+    package_bytes = bytearray(136)
+    # Header: magic 'ALVL', version 1, flags 0
+    struct.pack_into(">4sHH", package_bytes, 0, b"ALVL", 1, 0)
+
+    # 1. Palette (16 words = 32 bytes)
+    offset_palette = len(package_bytes)
+    for r, g, b in pal:
+        wrd = ((r & 0xF) << 8) | ((g & 0xF) << 4) | (b & 0xF)
+        package_bytes.extend(struct.pack(">H", wrd))
+    align4(package_bytes)
+
+    # 2. Strings
+    offset_title = len(package_bytes)
+    package_bytes.extend(level_title.encode("ascii", "replace") + b"\0")
+    align4(package_bytes)
+
+    offset_subtitle = len(package_bytes)
+    package_bytes.extend(level_sub_title.encode("ascii", "replace") + b"\0")
+    align4(package_bytes)
+
+    # 3. Enemy List
+    offset_enemies = len(package_bytes)
+    for e in enemies:
+        package_bytes.extend(struct.pack(">8h",
+            e['type'], e['col'], e['row'], e['x'], e['y'],
+            e['patrol_min'], e['patrol_max'], e['speed']
+        ))
+    package_bytes.extend(struct.pack(">h", -1))
+    align4(package_bytes)
+
+    # 4. Friends List
+    offset_friends = len(package_bytes)
+    for f in friends:
+        package_bytes.extend(struct.pack(">8h",
+            f['type'], f['col'], f['row'], f['x'], f['y'],
+            0, 0, 0
+        ))
+    package_bytes.extend(struct.pack(">h", -1))
+    align4(package_bytes)
+
+    # 5. Pushable Blocks List
+    offset_blocks = len(package_bytes)
+    for p in pushes:
+        package_bytes.extend(struct.pack(">4h",
+            p['col'], p['row'], p['sprite'], 0
+        ))
+    package_bytes.extend(struct.pack(">h", -1))
+    align4(package_bytes)
+
+    # 6. Ladder List
+    offset_ladders = len(package_bytes)
+    for l in ladders:
+        package_bytes.extend(struct.pack(">4h",
+            l['col_start'], l['col_end'], l['row_start'], l['row_end']
+        ))
+    package_bytes.extend(struct.pack(">h", -1))
+    align4(package_bytes)
+
+    # 7. Solid Platforms List
+    offset_solids = len(package_bytes)
+    for s in solids:
+        package_bytes.extend(struct.pack(">4h",
+            s['col_start'], s['col_end'], s['row_start'], s['row_end']
+        ))
+    package_bytes.extend(struct.pack(">h", -1))
+    align4(package_bytes)
+
+    # 8. Trigger List
+    offset_triggers = len(package_bytes)
+    for t in triggers:
+        package_bytes.extend(struct.pack(">5h",
+            t['id'], t['left'], t['top'], t['right'], t['bottom']
+        ))
+    package_bytes.extend(struct.pack(">h", -1))
+    align4(package_bytes)
+
+    # 9. Hazard List
+    offset_hazards = len(package_bytes)
+    for h in hazards:
+        package_bytes.extend(struct.pack(">5h",
+            h['damage'], h['left'], h['top'], h['right'], h['bottom']
+        ))
+    package_bytes.extend(struct.pack(">h", -1))
+    align4(package_bytes)
+
+    # 10. Bridge List
+    offset_bridges = len(package_bytes)
+    for b in bridges:
+        package_bytes.extend(struct.pack(">4h",
+            b['x'], b['x'] + b['w'], b['row_start'], 0
+        ))
+    package_bytes.extend(struct.pack(">h", -1))
+    align4(package_bytes)
+
+    # 11. Oxygen Refills List
+    offset_oxygens = len(package_bytes)
+    for ox in oxygen_refills:
+        package_bytes.extend(struct.pack(">8h",
+            ox['col'], ox['row'], ox['x'], ox['y'], ox['tile_id'], 0, 0, 0
+        ))
+    package_bytes.extend(struct.pack(">h", -1))
+    align4(package_bytes)
+
+    # 12. 1D GameMap
+    offset_gamemap = len(package_bytes)
+    package_bytes.extend(bytes(gamemap))
+    align4(package_bytes)
+
+    # 13. Layer Maps
+    offset_bg = 0
+    offset_plat = 0
+    offset_ladder = 0
+    offset_fg = 0
+    offset_water = 0
+    layer_list_offsets = []
+
+    for slug, grid in layer_grids:
+        if grid is None:
+            continue
+        cur_layer_off = len(package_bytes)
+        package_bytes.extend(struct.pack(">II", width, height))
+        for tile in grid:
+            package_bytes.extend(struct.pack(">H", tile & 0xFFFF))
+        align4(package_bytes)
+
+        if slug == "background":
+            offset_bg = cur_layer_off
+        elif slug == "platform":
+            offset_plat = cur_layer_off
+        elif slug == "ladder":
+            offset_ladder = cur_layer_off
+        elif slug == "foreground":
+            offset_fg = cur_layer_off
+        elif slug == "water":
+            offset_water = cur_layer_off
+        layer_list_offsets.append(cur_layer_off)
+
+    # 14. LayerList array (null-terminated array of 32-bit offsets)
+    offset_layer_list = len(package_bytes)
+    for off in layer_list_offsets:
+        package_bytes.extend(struct.pack(">I", off))
+    package_bytes.extend(struct.pack(">I", 0))
+    align4(package_bytes)
+
+    # 15. LevelDef record (126 bytes)
+    access_code_bytes = (access_code.ljust(6, ' ')[:6].encode('ascii') + b'\0\0')[:8]
+    leveldef_bytes = struct.pack(
+        ">4I2H5I2H2I5h3h3h9I2I8s",
+        0, 0, offset_palette, 0,
+        width, height,
+        offset_bg, offset_plat, offset_ladder, offset_fg, offset_water,
+        len(layer_list_offsets), 0,
+        offset_layer_list, offset_gamemap,
+        min_cam_y, max_cam_y, init_cam_y,
+        cam_margin_top, cam_margin_bottom,
+        player_start['col'], player_start['row'], player_start['dir'],
+        player2_start['col'], player2_start['row'], player2_start['dir'],
+        offset_enemies, offset_friends, offset_blocks,
+        offset_ladders, offset_solids, offset_triggers,
+        offset_hazards, offset_bridges, offset_oxygens,
+        offset_title, offset_subtitle,
+        access_code_bytes
+    )
+    package_bytes[8:8 + len(leveldef_bytes)] = leveldef_bytes
+
+    with open(package_path, "wb") as f_pkg:
+        f_pkg.write(package_bytes)
+
+    print(f"[*] Packaged standalone level binary: {package_path} ({len(package_bytes)} bytes)")
+
+
+def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: str = None, package_out: str = None):
     tmx_path = Path(tmx_file).resolve()
     if not tmx_path.exists():
         print(f"Error: File not found: {tmx_path}", file=sys.stderr)
@@ -486,16 +763,18 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
     tileset_msk = map_props.get("tileset_msk", "GameTilesMsk").strip()
     palette_name = map_props.get("palette", f"{prefix}_Palette").strip()
 
-    # Camera scroll bounds: map height minus visible viewport (13 rows = 208px)
-    max_cam_y_default = max(0, (height - 13) * 16)
+    # Camera scroll bounds: map height minus visible viewport (216px display window)
+    max_cam_y_default = max(0, height * 16 - 216)
     min_cam_y = int(map_props.get("min_camera_y", map_props.get("mincameray", 0)))
     max_cam_y = int(map_props.get("max_camera_y", map_props.get("maxcameray", max_cam_y_default)))
-    if "initial_row" in map_props:
+    if "initial_camera_y" in map_props:
+        init_cam_y = int(map_props["initial_camera_y"])
+    elif "initial_row" in map_props:
         init_cam_y = int(map_props["initial_row"]) * 16
     elif "initial_tile_row" in map_props:
         init_cam_y = int(map_props["initial_tile_row"]) * 16
     else:
-        init_cam_y = int(map_props.get("initial_camera_y", map_props.get("initialcameray", map_props.get("cameray", max_cam_y_default))))
+        init_cam_y = int(map_props.get("initialcameray", map_props.get("cameray", max_cam_y_default)))
 
     # Camera deadzone margins:
     # cam_margin_top = 16 (1 row below top)
@@ -538,14 +817,15 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
         for ts in tilesets:
             if g >= ts["firstgid"]:
                 local_id = g - ts["firstgid"]
-                # In the world tileset (AmigaGameEngine), tile 0 is the 100% transparent dummy tile.
-                # In Tiled, selecting this empty tile writes GID = firstgid (usually 1).
-                # It has no graphics and should be treated as empty.
-                if ts["category"] == "world" and local_id == 0:
+                ts_name = ts["name"]
+                # In legacy tileset-compact or AmigaGameEngine, tile 0 is the 100% transparent dummy tile.
+                if ts_name in ("tileset-compact", "AmigaGameEngine") and local_id == 0:
                     return None
+                comp_id = TILESET_TO_COMPACT.get((ts_name, local_id), local_id)
                 return {
                     "tileset": ts,
                     "local_id": local_id,
+                    "compact_id": comp_id,
                     "category": ts["category"],
                     "type": ts["tile_types"].get(local_id, ""),
                     "props": ts["tile_props"].get(local_id, {}),
@@ -572,8 +852,6 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
     ladders = []
     pushes = []
     dirts = []
-    cocoons = []
-    acids = []
     triggers = []
     hazards = []
     bridges = []
@@ -616,8 +894,11 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
             props = t_info["props"]
             local_id = t_info["local_id"]
 
+            comp_id = t_info["compact_id"]
+            is_world_tile = category in ("world", "platforms", "plants", "ladders", "entities", "water")
+
             # 1. Entity detection (runs on entities layer OR if an entity tileset was used anywhere)
-            if is_entities_layer or category in ("enemies", "friends", "player") or ttype in ("player", "crate", "oxygen", "oxygen_refill", "air") or ttype.startswith("enemy") or ttype.startswith("friend") or (category == "world" and local_id == 95):
+            if is_entities_layer or category in ("enemies", "friends", "player") or ttype in ("player", "crate", "oxygen", "oxygen_refill", "air") or ttype.startswith("enemy") or ttype.startswith("friend") or comp_id in (18, 46) or (is_world_tile and local_id == 95):
                 # Player
                 if category == "player" or ttype == "player" or "player" in ttype:
                     player_start["col"] = c
@@ -663,9 +944,9 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
                     })
                     print(f"      [Tile] -> Friend: '{f_name}' (type={f_type}) at Col={c}, Row={r} ({c*16}, {r*16})")
 
-                # Push Crate
-                elif ttype == "crate" or (category == "world" and local_id == 37) or "crate" in ttype or g == 38:
-                    sprite_idx = int(props.get("sprite", 37))
+                # Push Crate (Tile ID 18, GID 19; legacy 37, GID 38)
+                elif ttype == "crate" or comp_id == 18 or (is_world_tile and local_id in (18, 37)) or "crate" in ttype or g in (19, 38):
+                    sprite_idx = int(props.get("sprite", 18 if comp_id == 18 or local_id == 18 else 37))
                     pushes.append({
                         "col": c,
                         "row": r,
@@ -679,14 +960,14 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
                     gamemap[idx] = BLOCK_PUSH
                     print(f"      [Tile] -> Push Block: Col={c}, Row={r} (sprite={sprite_idx})")
 
-                # Oxygen Refill Pickup (Tile ID 95, GID 96)
-                elif local_id == 95 or ttype in ("oxygen", "oxygen_refill", "air") or "oxygen" in ttype or (category == "world" and local_id == 95):
+                # Oxygen Refill Pickup (Tile ID 46, GID 47; legacy 95, GID 96)
+                elif comp_id == 46 or local_id in (46, 95) or ttype in ("oxygen", "oxygen_refill", "air") or "oxygen" in ttype or (is_world_tile and local_id in (46, 95)):
                     oxygen_refills.append({
                         "col": c,
                         "row": r,
                         "x": c * 16,
                         "y": r * 16,
-                        "tile_id": local_id
+                        "tile_id": comp_id
                     })
                     print(f"      [Tile] -> Oxygen Refill: Col={c}, Row={r} ({c*16}, {r*16})")
 
@@ -695,26 +976,26 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
 
             # 2. Visual / Collision Layer processing
             if is_foreground_layer:
-                if category == "world":
-                    foreground_grid[idx] = local_id
+                if is_world_tile:
+                    foreground_grid[idx] = comp_id
 
             elif is_water_layer:
-                if category == "world":
-                    water_grid[idx] = local_id
+                if is_world_tile:
+                    water_grid[idx] = comp_id
 
             elif is_platforms_layer:
-                if category == "world":
-                    platform_grid[idx] = local_id
+                if is_world_tile:
+                    platform_grid[idx] = comp_id
                 gamemap[idx] = BLOCK_SOLID
 
             elif is_ladders_layer:
-                if category == "world":
-                    ladder_grid[idx] = local_id
+                if is_world_tile:
+                    ladder_grid[idx] = comp_id
                 gamemap[idx] = BLOCK_LADDER
 
             elif is_background_layer:
-                if category == "world":
-                    scenery_grid[idx] = local_id
+                if is_world_tile:
+                    scenery_grid[idx] = comp_id
                 # Check TSX collision attribute
                 attr = t_info["attr"]
                 if attr == ATTR_SOLID:
@@ -748,9 +1029,6 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
             # Identify Player Spawn
             is_player = (
                 "player" in tag or "player" in name_lower or
-                "millie" in tag or "millie" in name_lower or
-                "price" in tag or "price" in name_lower or
-                "cole" in tag or "cole" in name_lower or
                 "spawn" in tag or "spawn" in name_lower
             )
 
@@ -881,9 +1159,9 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
                 })
 
             elif "push" in tag or "push" in name_lower or "movable" in tag or "movable" in name_lower or "crate" in tag or "crate" in name_lower:
-                sprite_index = 37
+                sprite_index = 18
                 if "crate" in name_lower or "crate" in tag:
-                    sprite_index = 37
+                    sprite_index = 18
                 elif "sprite" in props:
                     sprite_index = int(props["sprite"])
                 elif "tile_id" in props:
@@ -926,15 +1204,7 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
                     "row_end": row_end,
                 })
 
-            elif "cocoon" in tag or "cocoon" in name_lower:
-                cocoons.append({
-                    "col_start": col_start,
-                    "col_end": col_end,
-                    "row_start": row_start,
-                    "row_end": row_end,
-                })
-
-            elif "hazard" in tag or "spike" in tag or "acid" in tag or "lava" in tag or "hazard" in name_lower:
+            elif "hazard" in tag or "spike" in tag or "lava" in tag or "hazard" in name_lower:
                 damage = int(props.get("damage", 1))
                 hazards.append({
                     "damage": damage,
@@ -943,13 +1213,6 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
                     "right": int(round(x + w)),
                     "bottom": int(round(y + h))
                 })
-                if "acid" in tag or "acid" in name_lower:
-                    acids.append({
-                        "col_start": col_start,
-                        "col_end": col_end,
-                        "row_start": row_start,
-                        "row_end": row_end,
-                    })
 
             elif "trigger" in tag or "exit" in tag or "door" in tag or "boss" in tag or "trigger" in name_lower:
                 trig_id = int(props.get("trigger_id", props.get("id", len(triggers) + 1)))
@@ -1079,7 +1342,7 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
                 else:
                     c += 1
 
-    # 5. Push, Dirt, Cocoon, Acid
+    # 5. Push, Dirt
     for p in pushes:
         for r in range(p["row_start"], p["row_end"] + 1):
             for c in range(p["col_start"], p["col_end"] + 1):
@@ -1088,14 +1351,6 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
         for r in range(d["row_start"], d["row_end"] + 1):
             for c in range(d["col_start"], d["col_end"] + 1):
                 gamemap[r * width + c] = BLOCK_DIRT
-    for co in cocoons:
-        for r in range(co["row_start"], co["row_end"] + 1):
-            for c in range(co["col_start"], co["col_end"] + 1):
-                gamemap[r * width + c] = BLOCK_COCOON
-    for a in acids:
-        for r in range(a["row_start"], a["row_end"] + 1):
-            for c in range(a["col_start"], a["col_end"] + 1):
-                gamemap[r * width + c] = BLOCK_ACID
 
     # 6. Bottom boundary solid floor
     for c in range(width):
@@ -1186,10 +1441,11 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
     print(f"    Exported layer 'foreground': {out_fg} ({out_fg.stat().st_size} bytes)")
 
     # 5. Water layer map (contains water tiles)
-    out_water = out_dir / f"{prefix}-water.map"
-    write_binary_map(out_water, width, height, water_grid)
-    exported_map_files.append(("water", f"{prefix}-water.map", out_water))
-    print(f"    Exported layer 'water': {out_water} ({out_water.stat().st_size} bytes)")
+    if any(water_grid):
+        out_water = out_dir / f"{prefix}-water.map"
+        write_binary_map(out_water, width, height, water_grid)
+        exported_map_files.append(("water", f"{prefix}-water.map", out_water))
+        print(f"    Exported layer 'water': {out_water} ({out_water.stat().st_size} bytes)")
 
     # 6. Composite / Merged map (scenery + platforms + ladders + foreground)
     composite_grid = [0] * (width * height)
@@ -1215,13 +1471,54 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
         f_gmap.write(bytes(gamemap))
     print(f"    Exported 1D GameMap: {gamemap_path} ({len(gamemap)} bytes)")
 
+    if package_out:
+        layer_grids = [
+            ("background", scenery_grid),
+            ("platform", platform_grid),
+            ("ladder", ladder_grid),
+            ("foreground", foreground_grid),
+            ("water", water_grid if any(water_grid) else None),
+        ]
+        pal = tileset_info["palette"] if (tileset_info and "palette" in tileset_info) else DEFAULT_PALETTE_OCS
+        package_level_binary(
+            package_path=Path(package_out),
+            width=width,
+            height=height,
+            min_cam_y=min_cam_y,
+            max_cam_y=max_cam_y,
+            init_cam_y=init_cam_y,
+            cam_margin_top=cam_margin_top,
+            cam_margin_bottom=cam_margin_bottom,
+            player_start=player_start,
+            player2_start=player2_start,
+            enemies=enemies,
+            friends=friends,
+            pushes=pushes,
+            ladders=ladders,
+            solids=solids,
+            triggers=triggers,
+            hazards=hazards,
+            bridges=bridges,
+            oxygen_refills=oxygen_refills,
+            pal=pal,
+            level_title=level_title,
+            level_sub_title=level_sub_title,
+            access_code=access_code,
+            gamemap=gamemap,
+            layer_grids=layer_grids
+        )
+        if asm_out is None:
+            print("[*] Standalone level package created. Skipping assembly metadata.")
+            return
+
     # =========================================================================
     # Write Assembly Metadata File
     # =========================================================================
     if asm_out is None:
-        # Default to include/resources/<prefix>_entities.asm or out_dir/<prefix>_entities.asm
-        include_dir = Path(__file__).resolve().parent.parent / "include" / "resources"
-        if include_dir.exists():
+        # Default to include/resources/levels/<prefix>_entities.asm or out_dir/<prefix>_entities.asm
+        include_dir = Path(__file__).resolve().parent.parent / "include" / "resources" / "levels"
+        if include_dir.parent.exists():
+            include_dir.mkdir(parents=True, exist_ok=True)
             asm_path = include_dir / f"{prefix.lower()}_entities.asm"
         else:
             asm_path = out_dir / f"{prefix.lower()}_entities.asm"
@@ -1232,7 +1529,8 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
     print(f"[*] Generating Assembly Metadata: {asm_path}")
 
     # Relative path from project root for incbins
-    rel_out_dir = os.path.relpath(out_dir, asm_path.parent.parent.parent).replace("\\", "/")
+    project_root = Path(__file__).resolve().parent.parent
+    rel_out_dir = os.path.relpath(out_dir, project_root).replace("\\", "/")
 
     # The 4 reference source layers blitted into NonDisplayScreen:
     # 1. Scenery/Background, 2. Platforms, 3. Ladders, 4. Foreground
@@ -1623,13 +1921,25 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
 
 def main():
     parser = argparse.ArgumentParser(description="Export Tiled TMX map to Amiga binary and assembly format")
-    parser.add_argument("tmx", nargs="?", default="assets/Levels/Level_01.tmx", help="Path to Tiled .tmx file")
+    parser.add_argument("tmx", nargs="*", default=[], help="Path to Tiled .tmx file(s)")
     parser.add_argument("--out-dir", "-o", default=None, help="Directory for binary .map output files")
     parser.add_argument("--asm-out", "-a", default=None, help="Path for assembly .asm metadata file")
     parser.add_argument("--prefix", "-p", default=None, help="Prefix for labels and filenames")
+    parser.add_argument("--package", default=None, help="Package map into standalone .lvl binary (e.g. test.lvl)")
 
     args = parser.parse_args()
-    export_tmx(args.tmx, args.out_dir, args.asm_out, args.prefix)
+    if not args.tmx:
+        # Auto-discover all .tmx files in assets/levels/
+        levels_dir = Path(__file__).resolve().parent.parent / "assets" / "levels"
+        tmx_files = sorted(p for p in levels_dir.glob("**/*.tmx") if "temp" not in str(p).lower())
+        if not tmx_files:
+            print("Error: No .tmx files found in assets/levels", file=sys.stderr)
+            sys.exit(1)
+        for tmx in tmx_files:
+            export_tmx(str(tmx), package_out=args.package)
+    else:
+        for tmx in args.tmx:
+            export_tmx(tmx, args.out_dir, args.asm_out, args.prefix, package_out=args.package)
 
 
 if __name__ == "__main__":

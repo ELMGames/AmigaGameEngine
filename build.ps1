@@ -43,12 +43,22 @@ if ($Assets) {
     Write-Host "== Converting assets =="
     python tools/convert_assets.py
     if ($LASTEXITCODE -ne 0) { Write-Error "Asset conversion failed." }
+    if (Test-Path "tools/convert_duck_banner.py") {
+        Write-Host "== Converting Duck Rescue Banner =="
+        python tools/convert_duck_banner.py
+        if ($LASTEXITCODE -ne 0) { Write-Error "Duck banner conversion failed." }
+    }
+    if (Test-Path "tools/generate_sfx.py") {
+        Write-Host "== Generating Sound Effects =="
+        python tools/generate_sfx.py
+        if ($LASTEXITCODE -ne 0) { Write-Error "SFX generation failed." }
+    }
 }
 
 # --- Export Tiled Levels -------------------------------------------------------
 if (Test-Path "tools/export_level.py") {
     Write-Host "== Exporting Tiled Levels =="
-    python tools/export_level.py assets/Levels/Level_01.tmx
+    python tools/export_level.py
     if ($LASTEXITCODE -ne 0) { Write-Error "Tiled export failed." }
 }
 
@@ -73,6 +83,13 @@ if (Test-Path "tools/convert_enemies.py") {
     if ($LASTEXITCODE -ne 0) { Write-Error "Enemy conversion failed." }
 }
 
+# --- Convert Headshot Assets --------------------------------------------------
+if (Test-Path "tools/convert_headshots.py") {
+    Write-Host "== Converting Headshot Assets =="
+    python tools/convert_headshots.py
+    if ($LASTEXITCODE -ne 0) { Write-Error "Headshot conversion failed." }
+}
+
 # --- Assemble ------------------------------------------------------------------
 New-Item -ItemType Directory -Force build | Out-Null
 Write-Host "== Assembling main.asm =="
@@ -84,7 +101,7 @@ if ($LASTEXITCODE -ne 0) { Write-Error "Assembly failed." }
 $outDir = Split-Path $Out
 if ($outDir) { New-Item -ItemType Directory -Force $outDir | Out-Null }
 Write-Host "== Linking $Out =="
-& $vlink -bamigahunk -Bstatic -o $Out build/main.o
+& $vlink -bamigahunk -Bstatic -s -o $Out build/main.o
 if ($LASTEXITCODE -ne 0) { Write-Error "Link failed." }
 
 # Synchronize both workspace and parent uae/dh0/main so WinUAE always loads the latest binary

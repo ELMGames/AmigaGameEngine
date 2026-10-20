@@ -36,7 +36,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# Vibrant 16-color OCS palette (matches export_level.py & FourSeasons tileset)
+# Vibrant 16-color OCS palette (matches export_level.py & compact tileset)
 PALETTE_OCS = [
     (0, 0, 0),      # 0: Transparent ($0000)
     (1, 11, 14),    # 1: 0x1BE Vibrant Cyan (Water)
@@ -367,42 +367,45 @@ def create_preview_sheet(frames, out_path: Path):
     print(f"  Exported preview contact sheet: {out_path} ({sheet_w}x{sheet_h})")
 
 
-def main():
-    print("=== Converting Player BOB Assets (24 Frames, 128x144) ===")
-    src_png = PROJECT_ROOT / "assets/graphics/sprites/player-animation-20x24.png"
-    master_png = PROJECT_ROOT / "assets/graphics/sprites/player_master_128x144.png"
-    out_raw = PROJECT_ROOT / "assets/graphics/sprites/player_bobs_128x144.raw"
-    out_msk = PROJECT_ROOT / "assets/graphics/sprites/player_bobs_128x144.msk"
-    out_white = PROJECT_ROOT / "assets/graphics/sprites/player_bobs_128x144_white.raw"
-    preview_png = PROJECT_ROOT / "assets/graphics/sprites/player_bobs_preview.png"
-
-    if master_png.exists():
-        print(f"[*] Loading from existing player master PNG: {master_png}")
-        frames = load_frames_from_master_png(master_png)
-    else:
-        if not src_png.exists():
-            print(f"Error: {src_png} does not exist!")
-            sys.exit(1)
-        print(f"[*] Assembling 24 frames from source spritesheet: {src_png}")
-        cels = load_cels_from_sheet(src_png)
-        frames = assemble_24_player_frames(cels)
-        export_master_png(frames, master_png)
-
+def convert_sheet(sheet_png: Path, raw_path: Path, msk_path: Path, white_path: Path, preview_path: Path):
+    print(f"[*] Processing spritesheet: {sheet_png}")
+    frames = load_frames_from_master_png(sheet_png)
     raw_bytes, msk_bytes, white_bytes = build_bob_data(frames)
 
-    out_raw.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_raw, "wb") as f:
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(raw_path, "wb") as f:
         f.write(raw_bytes)
-    with open(out_msk, "wb") as f:
+    with open(msk_path, "wb") as f:
         f.write(msk_bytes)
-    with open(out_white, "wb") as f:
+    with open(white_path, "wb") as f:
         f.write(white_bytes)
 
-    print(f"  Exported player BOB raw: {out_raw} ({len(raw_bytes)} bytes)")
-    print(f"  Exported player BOB msk: {out_msk} ({len(msk_bytes)} bytes)")
-    print(f"  Exported player BOB white: {out_white} ({len(white_bytes)} bytes)")
+    print(f"  Exported BOB raw: {raw_path} ({len(raw_bytes)} bytes)")
+    print(f"  Exported BOB msk: {msk_path} ({len(msk_bytes)} bytes)")
+    print(f"  Exported BOB white: {white_path} ({len(white_bytes)} bytes)")
 
-    create_preview_sheet(frames, preview_png)
+    if "--preview" in sys.argv:
+        create_preview_sheet(frames, preview_path)
+
+
+def main():
+    print("=== Converting Player BOB Assets (24 Frames, 128x144) ===")
+    female_png = PROJECT_ROOT / "assets/graphics/sprites/player_master_female_128x144.png"
+    female_raw = PROJECT_ROOT / "assets/graphics/sprites/player_bobs_female_128x144.raw"
+    female_msk = PROJECT_ROOT / "assets/graphics/sprites/player_bobs_female_128x144.msk"
+    female_white = PROJECT_ROOT / "assets/graphics/sprites/player_bobs_female_128x144_white.raw"
+    female_preview = PROJECT_ROOT / "assets/graphics/sprites/player_female_preview.png"
+
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    if args:
+        target_png = Path(args[0])
+        convert_sheet(target_png, female_raw, female_msk, female_white, female_preview)
+    else:
+        if not female_png.exists():
+            print(f"Error: {female_png} not found!")
+            sys.exit(1)
+        convert_sheet(female_png, female_raw, female_msk, female_white, female_preview)
+
     print("=== Player Assets Conversion Complete! ===")
 
 

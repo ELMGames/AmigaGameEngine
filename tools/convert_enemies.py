@@ -13,6 +13,7 @@ Converts:
 Format: 4-bitplane interleaved raw graphics and 1-bit cookie-cut masks.
 """
 
+import sys
 from pathlib import Path
 from PIL import Image, ImageDraw
 
@@ -49,7 +50,7 @@ def map_pixel_to_index(r: int, g: int, b: int, a: int) -> int:
     if rgb == (0, 162, 157):
         return 1   # Vibrant Cyan (Cyan Slime / Blue Ghost body)
     if rgb in [(1, 64, 57), (7, 61, 58)]:
-        return 14  # Vibrant Teal (Cyan Slime / Blue Ghost shadow)
+        return 7   # Deep Blue (Cyan Slime / Blue Ghost shadow)
     if rgb == (169, 0, 0):
         return 12  # Vibrant Red (Red Slime & Bat body/wings / Snail foot)
     if rgb in [(93, 4, 4), (52, 12, 8)]:
@@ -82,6 +83,8 @@ def map_pixel_to_index(r: int, g: int, b: int, a: int) -> int:
     best_dist = 999999
     best_idx = 1
     for idx, (pr, pg, pb) in enumerate(PALETTE_OCS[1:], start=1):
+        if idx == 14:
+            continue
         d = (ro - pr) ** 2 + (go - pg) ** 2 + (bo - pb) ** 2
         if d < best_dist:
             best_dist = d
@@ -242,7 +245,8 @@ def main():
 
     assert dizzy_img.size == (64, 16), f"Expected 64x16 PNG, got {dizzy_img.size}"
     convert_image_to_bobs(dizzy_img, out_dizzy_raw, out_dizzy_msk)
-    create_dizzy_preview(dizzy_img, dizzy_preview)
+    if "--preview" in sys.argv:
+        create_dizzy_preview(dizzy_img, dizzy_preview)
 
     print("=== Enemy Assets Conversion Complete! ===")
 
