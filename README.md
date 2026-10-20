@@ -127,10 +127,62 @@ Game execution is dispatched every video frame via `GameStatus(a5)`:
 ---
 
 ## Asset & Level Pipeline
-1. 
+
+All game assets are processed deterministically via scripts in [`tools/`](tools/):
+
+1. **Level Authoring (`export_level.py`)**:
+   - Converts Tiled `.tmx` maps (`assets/levels/Level_01/` through `Level_06/`) into planar Amiga data.
+   - Outputs:
+     - 16-colour planar raw tileset (`tileset-compact_176x80.raw`) and blitter mask (`.msk`).
+     - Multi-layer binary maps: `*-background.map`, `*-platform.map`, `*-ladder.map`, `*-foreground.map`, and composite `*.map`.
+     - 1D logic collision map (`*-gamemap.bin`).
+     - 68000 assembly definitions (`include/resources/levels/level_XX_entities.asm`) specifying player spawns, ladders, patrol paths, push blocks, oxygen pickups, and animal friends.
+
+2. **Player BOB Pipeline (`convert_player_bob.py`)**:
+   - Generates 16-colour, 4-bitplane raw graphic sheets, blitter masks (`.msk`), and pure-white silhouettes (`_white.raw`) for **Denise** (`player_bobs_female_128x144.*`) (9,216 bytes).
+   - Denise's sprite sheet features an animated ponytail across all 6 action rows (idle, walk, attack, death, ladder, falling) and custom red adventurer tunic.
+   - At boot, `PlayerInitFlippedSprites` dynamically flips right-facing master graphics into a single set of left-facing Chip RAM BSS buffers (`PlayerLeftRaw`, `PlayerLeftMsk`, `PlayerLeftWhiteRaw`), cutting disk footprint in half and conserving precious Chip RAM.
+   - Pass `--preview` to export a visual contact sheet (`player_female_preview.png`) for inspection.
+
+3. **Animal Friend & Enemy Pipelines (`convert_animals.py`, `convert_enemies.py`)**:
+   - Exports planar graphics, blitter masks, and optional animated GIF/PNG previews (via `--preview`) for enemies, dizzy stars, and animal companions.
+
+4. **Audio & Sound Effects Pipeline (`generate_sfx.py`)**:
+   - Synthesizes 8-bit signed PCM audio samples for game SFX (cane swing, crate push/impact, enemy stun, duck rescue, oxygen, player death, bubble pop, fanfare).
+
+5. **ZX0 Decompression (`zx0_faster.asm` & `zx0.exe`)**:
+   - Compresses title and overlay assets using Einar Saukas' ZX0 format (v2).
+   - Real-time 68000 decompression into Chip RAM buffers with high speed and low overhead.
+
+---
+
+## Repository Structure
+
+```
+.
+├── build.ps1                       # Primary automated build & sync script
+├── build.py                        # Cross-platform Python build driver
+├── main.asm                        # Entry point, memory sections, main loop, VBlank ISR
+├── assets/
+│   ├── data/                       # Sine & easing mathematical lookup tables
+│   ├── font/                       # 8x8 font glyph raw data and proportional Michroma UI font
+│   ├── fx/                         # 8-bit signed PCM SFX samples and ZX tape audio wavs
+│   ├── graphics/
+│   │   ├── animals/                # Animal friend raw/msk files
+│   │   ├── copper/                 # Precalculated copper sky binary
+│   │   ├── enemies/                # Enemy sprite sheets, dizzy stars raw/msk
+│   │   ├── headshots/              # Denise portrait graphics and palettes
+│   │   ├── sprites/                # Denise BOB raw/msk/white files, PNG master source
+│   │   ├── tiles/                  # 16x16 raw compact tileset and blitter mask
+│   │   └── title/                  # Title screen logo, duck banner, and palette files
+│   ├── levels/                     # Tiled .tmx levels (Level_01/ through Level_06/, Test/)
+│   └── music/                      # ProTracker modules by JAM (heatwave_cruise, xlr8, 10kdub)
+├── include/resources/
+│   ├── audio/                      # Audio driver integration (audio.asm, gamesfx.asm, zxsfx.asm)
+│   ├── core/                       # Constants, macros, data structures, and variables (a5)
 │   ├── gameplay/                   # Gameloop, player, actors, tilemap, undo, vhs_rewind, levelutils
 │   ├── graphics/                   # Copper lists, font renderers, HUD sprites, blitter routines
-│   ├── levels/                     # Auto-generated level entity tables and Michroma font data
+│   ├── levels/                     # Auto-generated level entity tables and metadata
 │   ├── ptplayer/                   # Frank Wille's PTPlayer ProTracker replayer (ptplayer.asm)
 │   ├── screens/                    # Screen state handlers (loading, titlescreen, instructions,
 │   │                               #   credits, levelcomplete, gamecomplete, gameover, flashscreen)
