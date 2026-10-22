@@ -17,7 +17,7 @@
  <tileset firstgid="45" source="../../graphics/tiles/tileset-entities.tsx"/>
  <tileset firstgid="47" source="../../graphics/enemies/Enemies.tsx"/>
  <tileset firstgid="79" source="../../graphics/animals/Friends.tsx"/>
- <tileset firstgid="91" source="../../graphics/sprites/Player.tsx"/>
+ <tileset firstgid="91" source="../../graphics/player/Player.tsx"/>
  <layer id="1" name="scenery" width="20" height="13">
   <data encoding="csv">
 0,0,0,0,0,0,0,0,0,18,0,0,0,0,0,0,0,0,0,0,

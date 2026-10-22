@@ -462,7 +462,6 @@ ActorsSavePos:
     rts
 
 
-; ClearFrozenPlayer  ->  frozenplayer.asm
 
 
 ;==============================================================================

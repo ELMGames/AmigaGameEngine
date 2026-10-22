@@ -36,25 +36,20 @@ CopperSetPtrs:
 
 
 ;==============================================================================
-; ScalePALFrames  -  Convert a PAL frame count to the current video standard
+; ScalePALFrames  -  Convert a PAL frame count to game logic ticks
 ;
-; Durations in this codebase are authored in PAL frames (50 Hz).  On NTSC
-; (60 Hz) the same frame count would run ~20% short, so timers that represent
-; real-time durations should be armed through this routine.
+; Durations in this codebase are authored in PAL frames (50 Hz).  Since
+; VBlankTick (main.asm) now normalises NTSC to 50 logic ticks per second
+; (every 6th 60 Hz VBlank is skipped), a logic tick is the same real-time
+; length on both standards, so no scaling is needed: this routine returns
+; d0 unchanged.  It is kept as the single hook point so callers do not need
+; to change if the timing model is ever altered again.
 ;
 ;   In:  d0.w = duration in PAL frames
-;   Out: d0.w = equivalent frame count for the detected video standard
-;               (unchanged on PAL; multiplied by 6/5 on NTSC)
-;
-; Requires a5 = Variables (reads IsPAL, set by DetectNTSC).
+;   Out: d0.w = equivalent logic-tick count (identical on PAL and NTSC)
 ;==============================================================================
 
 ScalePALFrames:
-    tst.w      IsPAL(a5)
-    bne.s      .pal
-    mulu       #6,d0
-    divu       #5,d0
-.pal
     rts
 
 

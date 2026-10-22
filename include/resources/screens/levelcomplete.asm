@@ -1,12 +1,12 @@
 ;==============================================================================
 ; AMIGA GAME ENGINE
-; levelcomplete.asm  -  Level Complete Screen (states 9 and 10)
+; levelcomplete.asm  -  Level Complete Screen (states 7 and 8)
 ;==============================================================================
 ;
 ; Screen layout (320x216 pixels, 5-plane interleaved):
 ;   Y=  4, bX=12   CONGRATULATIONS! (16 chars, white)
 ;   Y= 20, bX=11   LEVEL NNN CLEARED! (generic level number, white)
-;   Y= 28..91      Portraits: Player 1 at bX=0, Player 2 at bX=32 (64x64 each)
+;   Y= 28..91      Portraits: Mia at bX=2 (64x64, 5 bitplanes)
 ;   Y=100..147     Copper banner (COLOR00 -> gradient)
 ;   Y=108, bX= 8   NEXT LEVEL ACCESS CODE: (23 chars, white)
 ;   Y=124, bX=17   6-char access code (white)
@@ -170,8 +170,8 @@ LevelCompleteSetup:
     addq.l      #8,a0
     dbra        d7,.sploop
 
-    ; 2c. Patch cpLCPal with Denise's 32-colour palette
-    lea         HeadshotDenisePal,a0
+    ; 2c. Patch cpLCPal with Mia's 32-colour palette
+    lea         HeadshotMiaPal,a0
     lea         cpLCPal+2,a1            ; cpLCPal entries: dc.w COLORxx, <value> (4 bytes)
     moveq       #32-1,d7
 .pal_loop:
@@ -210,7 +210,7 @@ LevelCompleteSetup:
     move.w      #2560,d0                ; Frame 1 (offset 2560: 5 planes * 512 bytes)
 .got_frame_offset:
 
-    lea         HeadshotDeniseRaw,a0
+    lea         HeadshotMiaRaw,a0
     add.w       d0,a0                   ; a0 = pointer to selected 64x64 headshot frame in Fast RAM
 
     ; Stage the single 64x64 portrait frame (2,560 bytes) into NonDisplayScreen (Chip RAM)

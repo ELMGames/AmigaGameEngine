@@ -624,9 +624,10 @@ KEY_F10             = $59
 ; coloured band on screen shows how many raster lines of CPU time each frame
 ; costs.  A taller bar = more CPU work.  Toggle with F3 in Debug Mode (F5).
 ;
-; Green ($0F0) = normal / good headroom; Red ($F00) = VBlank overrun.
+; Yellow ($FF0) = VBlank priority blits (lines 0..44); Green ($0F0) = game logic; Red ($F00) = overrun.
 ; Copper background gradient is disabled while F3 is active to avoid overwrite.
 ;------------------------------------------------------------------------------
+DEBUG_RASTER_VBLANK  = $ff0   ; bright yellow VBlank priority blit indicator (must finish before scanline 44)
 DEBUG_RASTER_COLOR   = $0f0   ; bright green CPU-busy indicator (green = good, within 50 FPS budget)
 DEBUG_RASTER_OVERRUN = $f00   ; bright red CPU-overrun indicator (red = bad, exceeded VBlank budget)
 
@@ -756,7 +757,7 @@ DIRT_TOTAL_TICKS        = DIRT_FRAME_TICKS*DIRT_FRAMES      ; 56
 ; tile before the next level loads.  The pattern is chosen at random from
 ; NUM_WIPE_PATTERNS effects each time.
 ;
-; WipeOppositeTable (in mapstuff.asm) maps each pattern index to its
+; WipeOppositeTable (in levelutils.asm) maps each pattern index to its
 ; directional inverse so a future reveal animation can use the matching effect.
 ;
 ; LEVEL_WIPE        - GameStatus value while the wipe is running (state 3)

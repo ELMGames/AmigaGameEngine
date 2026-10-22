@@ -1,6 +1,6 @@
 ;==============================================================================
 ; AMIGA GAME ENGINE
-; gameover.asm  -  Game Over Screen (states 17 and 18)
+; gameover.asm  -  Game Over Screen (states 21 and 22)
 ;==============================================================================
 ;
 ; Displayed when the player loses all 3 lives (PlayerLives reaches 0).
@@ -64,7 +64,7 @@ DrawDashLine:
 
 
 ;==============================================================================
-; GameOverSetup  -  One-shot initialisation for Game Over screen (state 17)
+; GameOverSetup  -  One-shot initialisation for Game Over screen (state 21)
 ;==============================================================================
 
 GameOverSetup:

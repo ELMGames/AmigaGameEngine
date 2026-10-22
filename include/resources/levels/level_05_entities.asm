@@ -31,7 +31,9 @@ Level_05_ForegroundMap:
     incbin     "assets/levels/Level_05/Level_05-foreground.map"
     even
 
-Level_05_WaterMap = 0
+Level_05_WaterMap:
+    incbin     "assets/levels/Level_05/Level_05-water.map"
+    even
 
 ;------------------------------------------------------------------------------
 ; Ordered Tilemap Layer Table (Blit Reference Source for NonDisplayScreen)
@@ -83,7 +85,7 @@ Level_05_Player2Dir:      dc.w    0       ; -1=Left, +1=Right (0=Solo)
 ;------------------------------------------------------------------------------
 Level_05_EnemyCount:      dc.w    1
 Level_05_EnemyList:
-    dc.w    3, 14, 6, 224, 96, 176, 288, 2   ; Enemy 1
+    dc.w    2, 14, 6, 224, 96, 176, 288, 1   ; Enemy 1
     dc.w    $ffff                       ; End of list marker
 
 ;------------------------------------------------------------------------------
@@ -228,7 +230,7 @@ Level_05_Def:
     dc.l    Level_05_PlatformMap        ; Platform layer binary pointer (0 if none)
     dc.l    Level_05_LadderMap          ; Ladder layer binary pointer (0 if none)
     dc.l    Level_05_ForegroundMap      ; Foreground layer binary pointer (0 if none)
-    dc.l    0                           ; Water layer binary pointer (0 if none)
+    dc.l    Level_05_WaterMap           ; Water layer binary pointer (0 if none)
     dc.w    4, 0                        ; Number of ordered tile layers, reserved
     dc.l    Level_05_LayerList          ; Ordered layer list pointer (TMX order)
     dc.l    Level_05_GameMap            ; 1D collision GameMap binary pointer

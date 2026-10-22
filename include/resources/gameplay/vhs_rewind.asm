@@ -2,132 +2,160 @@
 ; vhs_rewind.asm  -  VHS Cassette Rewind Screen Effect
 ; Amiga 68000 Assembly / OCS-ECS Chipset
 ;
-; Triggered on F9 (UndoMove): desaturates the palette, applies per-frame
-; colour-channel noise, per-scanline BPLCON1 horizontal jitter, and a
-; periodic one-frame vertical roll blip via bitplane pointer offset.
+; Triggered on F9 (UndoMove):
+;   1. Desaturates & darkens the palette with dynamic LFSR colour-channel noise.
+;   2. Live Copper Scanline Tearing: patches BPLCON1 horizontal delays across
+;      three random scanline bands in cpGameSky, creating real hardware horizontal
+;      tearing with analog chromatic aberration fringing (odd vs even plane phase).
+;   3. OSD Text: renders solid white 'REW  <<' in the top-left corner of the viewport
+;      using FontData with dark drop-shadow outline.
+;   4. Dynamic Variable Tracking Noise Snow Bar & Streaks:
+;      Renders an organically fluctuating tracking snow band (variable Y, variable
+;      height 8..15 scanlines, sudden tracking slips & speed changes) plus multiple
+;      random static noise streaks scattered dynamically across the entire screen!
+;   5. Non-Destructive Fast RAM Backup Buffers:
+;      Before noise or text is stamped, the exact scanlines from DisplayScreen are
+;      backed up into dedicated Fast RAM buffers and restored before each new frame.
+;      This guarantees that ALL stationary crates, dirt blocks, and actors on
+;      DisplayScreen are 100% preserved and never corrupted or erased!
 ;
 ; PUBLIC API
-;   VHS_Init         - call once in GameInit (after copper list is live)
-;   VHS_StartEffect  - trigger the effect (ActionIdle, after bsr UndoMove)
-;   VHS_StopEffect   - cancel early if needed
-;   VHS_DoFrame      - call every VBlank; d0=1 active, d0=0 just finished
-;   VHS_StateActive  - byte flag: non-zero while effect is running
+;   VHS_Init          - call once in GameInit
+;   VHS_StartEffect   - trigger the effect (ActionIdle, after bsr UndoMove)
+;   VHS_StopEffect    - cancel early or finish effect (restores screen & copper)
+;   VHS_DoFrame       - call every VBlank; d0=1 active, d0=0 just finished
+;   VHS_RestoreScreen - restore previous frame's noise before scene rendering
+;   VHS_StateActive   - byte flag: non-zero while effect is running
+;   VHS_NoiseDrawn    - byte flag: non-zero if noise is currently on DisplayScreen
 ;
 ; All routines preserve a5 (Variables) and a6 (CUSTOM).
 ; VHS_DoFrame returns result in d0; all other registers preserved by all routines.
-;
-; TUNING: adjust the EQUs below to change effect intensity without touching code.
 ;==============================================================================
 
 VHS_EFFECT_DURATION EQU  30          ; frames at full effect (~0.6 s at 50 Hz PAL)
 VHS_LFSR_POLY       EQU  $80000057   ; Galois LFSR polynomial (maximal-length 32-bit)
 VHS_NOISE_BITS      EQU  $0111       ; XOR mask: bits 0,4,8 = B/G/R channel LSBs
-
-; --- Scanline jitter (BPLCON1 copper slots in cpVHSDistort) ---
-; Screen splits into three regions; one copper WAIT+BPLCON1 slot per region.
-; Slots always carry valid scanlines so no slot blocks subsequent ones.
-; VHS_HSHIFT_MASK is ANDed with the LFSR byte; set bits choose which colour-clock
-; steps are possible.  $05 (bits 0,2) yields steps {0,1,4,5} → BPLCON1 $00/$11/$44/$55
-; = 0/2/8/10 lo-res pixels.  Use $03 for subtle 0-6 px, $07 for 0-14 px maximum.
-;
-; PAL base scanlines (display starts at line 44, three equal thirds of 216 lines):
-VHS_SLOT0_BASE      EQU  $2c         ; region 0 start: PAL display top  (line  44)
-VHS_SLOT1_BASE      EQU  $74         ; region 1 start: PAL middle third  (line 116)
-VHS_SLOT2_BASE      EQU  $bc         ; region 2 start: PAL bottom third  (line 188)
-; NTSC base scanlines (display starts at line 33, same three equal thirds):
-VHS_SLOT0_BASE_NTSC EQU  NTSC_WINDOW_Y_START        ; region 0: NTSC display top  (line  33)
-VHS_SLOT1_BASE_NTSC EQU  NTSC_WINDOW_Y_START+$48    ; region 1: NTSC middle third (line 105)
-VHS_SLOT2_BASE_NTSC EQU  NTSC_WINDOW_Y_START+$90    ; region 2: NTSC bottom third (line 177)
-; Runtime values — set by VHS_Init based on IsPAL(a5):
-; VHS_Slot0Base / VHS_Slot1Base / VHS_Slot2Base  (byte BSS, see section below)
-VHS_SLOT_RAND       EQU  $3f         ; random line spread within region  (0-63 lines)
-VHS_HSHIFT_MASK     EQU  $05         ; AND mask: bits 0,2 → steps {0,1,4,5} = 0/2/8/10 px
-
-; --- Vertical roll blip (bitplane pointer offset) ---
-; Every VHS_ROLL_INTERVAL frames the display jumps up by VHS_ROLL_LINES rows
-; for exactly one frame then snaps back - classic VHS tracking roll.
-; Increase VHS_ROLL_LINES for a larger jump, decrease VHS_ROLL_INTERVAL for
-; more frequent rolls.
-VHS_ROLL_INTERVAL   EQU  10          ; frames between roll events (~0.2 s at 50 Hz PAL)
-VHS_ROLL_LINES      EQU  8           ; rows to offset during the blip (8 rows = 1680 bytes)
-VHS_ROLL_BYTES      EQU  VHS_ROLL_LINES*SCREEN_STRIDE  ; byte delta for BPLxPT offset
+VHS_MAX_BAR_H       EQU  18          ; maximum possible tracking snow bar height
 
 ;==============================================================================
 ; Fast RAM BSS  (CPU-only; zeroed by OS at load)
 ;==============================================================================
 
     section  mem_fast,bss
+    even
 
 VHS_StateActive:    ds.b  1   ; non-zero while effect runs (exported symbol)
-                    ds.b  1   ; alignment pad
+VHS_TearActive:     ds.b  1   ; non-zero if copper scanline tear is currently patched
+VHS_TextDrawn:      ds.b  1   ; non-zero if REW << was drawn on screen
+VHS_NoiseDrawn:     ds.b  1   ; non-zero if noise is currently stamped on DisplayScreen
+VHS_JustFinished:   ds.b  1   ; non-zero on frame immediately post-unwind
+    even
+
 VHS_FrameCount:     ds.w  1   ; frames elapsed since VHS_StartEffect
 VHS_SavedPal:       ds.w  32  ; original colour values captured from cpPal
 VHS_DesPal:         ds.w  32  ; desaturated + darkened palette
-VHS_RollTimer:      ds.w  1   ; countdown to next vertical roll event
-VHS_RollActive:     ds.b  1   ; non-zero = roll applied this frame; restore next frame
-                    ds.b  1   ; alignment pad
-VHS_Slot0Base:      ds.b  1   ; region 0 scanline — set by VHS_Init (PAL $2C / NTSC $21)
-VHS_Slot1Base:      ds.b  1   ; region 1 scanline — set by VHS_Init (PAL $74 / NTSC $69)
-VHS_Slot2Base:      ds.b  1   ; region 2 scanline — set by VHS_Init (PAL $BC / NTSC $B1)
-                    ds.b  1   ; alignment pad
+
+VHS_NoiseBarY:      ds.w  1   ; current Y offset within viewport (10..185)
+VHS_PrevNoiseY:     ds.w  1   ; previous absolute scanline Y in DisplayScreen (-1 if none)
+VHS_PrevNoiseH:     ds.w  1   ; previous height of noise bar in scanlines
+VHS_PrevStreak1Y:   ds.w  1   ; previous scanline Y of streak 1 (-1 if none)
+VHS_PrevStreak2Y:   ds.w  1   ; previous scanline Y of streak 2 (-1 if none)
+VHS_PrevStreak3Y:   ds.w  1   ; previous scanline Y of streak 3 (-1 if none)
+VHS_PrevTextY:      ds.w  1   ; scanline Y where REW << was drawn (-1 if none)
+
+; Live copper tear patch bookkeeping in cpGameSky
+VHS_Tear1_Start:    ds.w  1   ; cpGameSky entry index for Tear 1 start
+VHS_Tear1_End:      ds.w  1   ; cpGameSky entry index for Tear 1 end
+VHS_Tear1_ColorS:   ds.w  1   ; original color save at Tear 1 start
+VHS_Tear1_ColorE:   ds.w  1   ; original color save at Tear 1 end
+
+VHS_Tear2_Start:    ds.w  1   ; cpGameSky entry index for Tear 2 start
+VHS_Tear2_End:      ds.w  1   ; cpGameSky entry index for Tear 2 end
+VHS_Tear2_ColorS:   ds.w  1   ; original color save at Tear 2 start
+VHS_Tear2_ColorE:   ds.w  1   ; original color save at Tear 2 end
+
+VHS_Tear3_Start:    ds.w  1   ; cpGameSky entry index for Tear 3 start
+VHS_Tear3_End:      ds.w  1   ; cpGameSky entry index for Tear 3 end
+VHS_Tear3_ColorS:   ds.w  1   ; original color save at Tear 3 start
+VHS_Tear3_ColorE:   ds.w  1   ; original color save at Tear 3 end
+    even
+
+; Non-destructive scanline backup buffers in Fast RAM
+; Captures exact DisplayScreen content before noise is stamped, restored before each frame
+VHS_NoiseBarBackup: ds.b  VHS_MAX_BAR_H*TILEMAP_LINE_STRIDE  ; 18 * 160 = 2,880 bytes
+VHS_Streak1Backup:  ds.b  TILEMAP_LINE_STRIDE                 ; 160 bytes
+VHS_Streak2Backup:  ds.b  TILEMAP_LINE_STRIDE                 ; 160 bytes
+VHS_Streak3Backup:  ds.b  TILEMAP_LINE_STRIDE                 ; 160 bytes
+VHS_TextBackup:     ds.b  8*32                                ; 8 lines x 8 bytes x 4 planes = 256 bytes
+    even
 
 ;==============================================================================
-; Fast RAM DATA  (LFSR seed must be non-zero, so cannot live in BSS)
+; Fast RAM DATA
 ;==============================================================================
 
     section  data_fast,data
+    even
 
 VHS_LFSR:           dc.l  $DEADBEEF
+VHS_Str_Rew:        dc.b  "REW  <<",0
+    even
+
+; Horizontal BPLCON1 delay values for tearing (bits 7-4 = even planes, bits 3-0 = odd planes)
+; Asymmetric values (e.g. $CB, $DC) introduce chromatic aberration / RGB edge fringing
+VHS_TearShifts:     dc.w  $00CC, $00DD, $00BB, $00CB, $00EE, $0099, $00AA, $00DC
+    even
 
 ;==============================================================================
 ; Code
 ;==============================================================================
 
     section  main,code
+    even
 
 ;------------------------------------------------------------------------------
 ; VHS_Init
 ; Call once in GameInit after the copper list is live.
-; No-op for Phase 1: LFSR is pre-seeded in the data section.
 ;------------------------------------------------------------------------------
 
 VHS_Init:
-    ; Set distortion region scanlines based on the detected display system.
-    ; PAL:  three equal thirds of the 216-line display from line 44: $2C / $74 / $BC
-    ; NTSC: three equal thirds of the 216-line display from line 33: $21 / $69 / $B1
-    tst.w    IsPAL(a5)
-    beq.b    .ntsc
-    move.b   #VHS_SLOT0_BASE,VHS_Slot0Base
-    move.b   #VHS_SLOT1_BASE,VHS_Slot1Base
-    move.b   #VHS_SLOT2_BASE,VHS_Slot2Base
-    rts
-.ntsc
-    move.b   #VHS_SLOT0_BASE_NTSC,VHS_Slot0Base
-    move.b   #VHS_SLOT1_BASE_NTSC,VHS_Slot1Base
-    move.b   #VHS_SLOT2_BASE_NTSC,VHS_Slot2Base
+    clr.b    VHS_StateActive
+    clr.b    VHS_TearActive
+    clr.b    VHS_TextDrawn
+    clr.b    VHS_NoiseDrawn
+    clr.b    VHS_JustFinished
+    move.w   #-1,VHS_PrevNoiseY
+    move.w   #-1,VHS_PrevStreak1Y
+    move.w   #-1,VHS_PrevStreak2Y
+    move.w   #-1,VHS_PrevStreak3Y
+    move.w   #-1,VHS_PrevTextY
     rts
 
 ;------------------------------------------------------------------------------
 ; VHS_StartEffect
 ; Snapshot cpPal colour values, compute the desaturated VHS palette, apply
 ; it immediately to cpPal, and start the frame counter.
-;
-; If already active (F9 pressed a second time mid-effect), only resets the
-; frame counter so the effect continues from the correct desaturated base
-; rather than re-snapshotting a palette that is already desaturated.
-;
-; Preserves all registers.
 ;------------------------------------------------------------------------------
 
 VHS_StartEffect:
     movem.l  d0-d3/d7/a0-a1,-(sp)
 
     tst.b    VHS_StateActive
-    bne      .activate             ; already running: skip snapshot, just reset timer
+    beq.s    .first_start
 
+    ; Already running: clean copper tears and reset timer
+    bsr      VHS_RestoreCopperTears
+    clr.b    VHS_NoiseDrawn
+    move.w   #-1,VHS_PrevNoiseY
+    move.w   #-1,VHS_PrevStreak1Y
+    move.w   #-1,VHS_PrevStreak2Y
+    move.w   #-1,VHS_PrevStreak3Y
+    move.w   #-1,VHS_PrevTextY
+    clr.w    VHS_FrameCount
+    movem.l  (sp)+,d0-d3/d7/a0-a1
+    rts
+
+.first_start:
     ;--- Snapshot: cpPal colour values -> VHS_SavedPal -----------------------
-    ; cpPal copper entry layout: dc.w COLORxx, colour_value  (4 bytes each)
-    ; The colour value word sits at byte offset +2 within each 4-byte pair.
     lea      cpPal+2,a0            ; a0 -> first colour value word
     lea      VHS_SavedPal,a1
     moveq    #32-1,d7
@@ -137,10 +165,6 @@ VHS_StartEffect:
     dbra     d7,.snap
 
     ;--- Desaturate: VHS_SavedPal -> VHS_DesPal ------------------------------
-    ; Per OCS colour $0RGB (4 bits/channel, range 0-15):
-    ;   grey  = (R+G+B)*85 >> 8   (integer approximation of /3, error <= 1)
-    ;   new_c = (c + grey) >> 1   (lerp 50% toward grey = half-saturation)
-    ;   new_c = new_c - new_c>>2  (darken to 75% brightness)
     lea      VHS_SavedPal,a0
     lea      VHS_DesPal,a1
     moveq    #32-1,d7
@@ -203,22 +227,40 @@ VHS_StartEffect:
 .activate:
     move.b   #1,VHS_StateActive
     clr.w    VHS_FrameCount
-    clr.b    VHS_RollActive
-    move.w   #VHS_ROLL_INTERVAL,VHS_RollTimer
-    bsr      VHS_ClearDistort
+    clr.b    VHS_TearActive
+    clr.b    VHS_TextDrawn
+    clr.b    VHS_NoiseDrawn
+    clr.b    VHS_JustFinished
+    move.w   #40,VHS_NoiseBarY
+    move.w   #12,VHS_PrevNoiseH
+    move.w   #-1,VHS_PrevNoiseY
+    move.w   #-1,VHS_PrevStreak1Y
+    move.w   #-1,VHS_PrevStreak2Y
+    move.w   #-1,VHS_PrevStreak3Y
+    move.w   #-1,VHS_PrevTextY
 
     movem.l  (sp)+,d0-d3/d7/a0-a1
     rts
 
 ;------------------------------------------------------------------------------
 ; VHS_StopEffect
-; Restore the original palette from VHS_SavedPal to cpPal and deactivate.
-; Preserves all registers.
+; Restore the original palette, clean copper list tears, restore screen from
+; Fast RAM backup buffers, and re-blit all static actors onto DisplayScreen.
 ;------------------------------------------------------------------------------
 
 VHS_StopEffect:
-    movem.l  d7/a0-a1,-(sp)
+    movem.l  d0-d7/a0-a4,-(sp)
 
+    ; 1. Restore live copper tears in cpGameSky
+    bsr      VHS_RestoreCopperTears
+
+    ; 2. Ensure hardware BPLCON1 register is reset to 0
+    move.w   #$0000,$dff102
+
+    ; 3. Restore all modified DisplayScreen areas from Fast RAM backups
+    bsr      VHS_RestoreScreen
+
+    ; 4. Restore original palette from VHS_SavedPal to cpPal
     lea      VHS_SavedPal,a0
     lea      cpPal+2,a1
     moveq    #32-1,d7
@@ -227,280 +269,744 @@ VHS_StopEffect:
     addq.l   #4,a1
     dbra     d7,.restore
 
-    tst.b    VHS_RollActive         ; if roll was applied, restore plane pointers
-    beq.b    .no_rp
-    bsr      VHS_RestorePlanes
-    clr.b    VHS_RollActive
-.no_rp:
-    bsr      VHS_ClearDistort       ; neutralise all BPLCON1 distortion slots
-
     clr.b    VHS_StateActive
+    clr.b    VHS_TextDrawn
+    clr.b    VHS_NoiseDrawn
+    move.b   #1,VHS_JustFinished
+    move.w   #-1,VHS_PrevNoiseY
+    move.w   #-1,VHS_PrevStreak1Y
+    move.w   #-1,VHS_PrevStreak2Y
+    move.w   #-1,VHS_PrevStreak3Y
+    move.w   #-1,VHS_PrevTextY
 
-    movem.l  (sp)+,d7/a0-a1
+    ; 5. Re-mark all actors dirty and redraw static actors so DisplayScreen is 100% verified pristine
+    bsr      MarkAllActorsDirty
+    bsr      DrawStaticActors
+
+    ; 6. Reset VBlank overrun count so post-unwind raster bar starts clean (green)
+    clr.w    VBlankOverrunCount(a5)
+
+    movem.l  (sp)+,d0-d7/a0-a4
     rts
 
 ;------------------------------------------------------------------------------
 ; VHS_DoFrame
 ; Call once per VBlank while VHS_StateActive is non-zero.
-; Writes VHS_DesPal + LFSR-driven per-channel noise to all 32 cpPal entries.
-;
-; OUT:  d0 = 1  effect still running
-;       d0 = 0  effect just finished (palette already restored to normal)
-; All other registers preserved.
 ;------------------------------------------------------------------------------
 
 VHS_DoFrame:
-    movem.l  d1-d2/d7/a0-a1,-(sp)
+    movem.l  d1-d7/a0-a4,-(sp)
 
     ; Increment and check frame counter
     addq.w   #1,VHS_FrameCount
     cmp.w    #VHS_EFFECT_DURATION,VHS_FrameCount
-    blt      .run
+    blt.s    .run
 
-    ; Effect expired: restore palette and signal done
-    movem.l  (sp)+,d1-d2/d7/a0-a1
+    ; Effect expired: stop effect cleanly
     bsr      VHS_StopEffect
+    clr.w    VBlankOverrunCount(a5)
+    movem.l  (sp)+,d1-d7/a0-a4
     moveq    #0,d0
     rts
 
 .run:
-    ; Write VHS_DesPal + LFSR channel-noise to all 32 cpPal value words.
-    ; LFSR is advanced once per entry; bits 0/4/8 of the low word flip
-    ; the LSB of the B/G/R channels (OCS $0RGB format) for ±1 colour noise.
+    ; 1. Write VHS_DesPal + LFSR channel-noise to all 32 cpPal entries
     move.l   VHS_LFSR,d2
     lea      VHS_DesPal,a0
-    lea      cpPal+2,a1            ; a1 -> first colour value word in copper list
+    lea      cpPal+2,a1
     moveq    #32-1,d7
 
 .noise:
-    lsr.l    #1,d2                 ; Galois LFSR step
-    bcc      .no_xor
+    lsr.l    #1,d2
+    bcc.s    .no_xor
     eor.l    #VHS_LFSR_POLY,d2
 .no_xor:
     move.w   (a0)+,d1              ; load desaturated colour
-    move.w   d2,d0                 ; scratch: low word of LFSR
+    move.w   d2,d0
     and.w    #VHS_NOISE_BITS,d0    ; isolate bits 0, 4, 8
     eor.w    d0,d1                 ; flip B/G/R LSBs at random
     move.w   d1,(a1)               ; write noisy colour to copper list
-    addq.l   #4,a1                 ; advance to next colour value word
+    addq.l   #4,a1
     dbra     d7,.noise
 
-    move.l   d2,VHS_LFSR           ; persist updated LFSR state
+    move.l   d2,VHS_LFSR
 
-    bsr      VHS_DoDistort          ; per-frame BPLCON1 scanline jitter
-    bsr      VHS_DoRoll             ; per-interval one-frame bitplane roll blip
+    ; Ensure Color 3 in cpPal is brilliant solid white ($0FFF) for VCR OSD overlay
+    move.w   #$0FFF,cpPal+(3*4)+2
 
-    movem.l  (sp)+,d1-d2/d7/a0-a1
+    ; 2. Restore previous frame's copper scanline tears in cpGameSky
+    bsr      VHS_RestoreCopperTears
+
+    ; 3. Restore previous frame's screen noise (if not already done at frame start)
+    bsr      VHS_RestoreScreen
+
+    ; 4. Render 'REW <<' text in the top-left of the viewport (with Fast RAM backup)
+    bsr      VHS_DrawRewindText
+
+    ; 5. Draw dynamically variable tracking noise snow bar (with Fast RAM backup)
+    bsr      VHS_DrawNoiseBar
+
+    ; 6. Draw dynamic random static noise streaks across the screen (with Fast RAM backup)
+    bsr      VHS_DrawStreaks
+
+    ; Mark that screen noise is currently stamped on DisplayScreen
+    move.b   #1,VHS_NoiseDrawn
+
+    ; 7. Apply live Copper scanline tearing across cpGameSky
+    bsr      VHS_ApplyCopperTears
+
+    movem.l  (sp)+,d1-d7/a0-a4
     moveq    #1,d0
     rts
 
 ;------------------------------------------------------------------------------
-; VHS_ClearDistort
-; Resets all three cpVHSDistort copper slots to their base scanlines with
-; BPLCON1=$0000 (no horizontal shift).  Valid WAITs are kept so that no slot
-; ever stalls at off-screen line $ff and thereby blocks the subsequent slots.
+; VHS_RestoreScreen
+; Restores all scanlines and areas modified by the snow bar, streaks, and
+; 'REW  <<' text box from the Fast RAM backup buffers back to DisplayScreen.
+; Restores the EXACT pixels that were on DisplayScreen before the noise was drawn,
+; guaranteeing that crates, dirt blocks, actors, and background are never lost.
 ; Preserves all registers.
 ;------------------------------------------------------------------------------
 
-VHS_ClearDistort:
-    movem.l  d0/a0,-(sp)
-    lea      cpVHSDistort,a0
-    moveq    #0,d0
-    move.b   VHS_Slot0Base,d0
-    lsl.w    #8,d0
-    or.w     #$07,d0
-    move.w   d0,(a0)                    ; slot 0: WAIT at region base
-    clr.w    6(a0)                       ; slot 0: BPLCON1 = 0
-    moveq    #0,d0
-    move.b   VHS_Slot1Base,d0
-    lsl.w    #8,d0
-    or.w     #$07,d0
-    move.w   d0,8(a0)                   ; slot 1: WAIT at region base
-    clr.w    14(a0)                      ; slot 1: BPLCON1 = 0
-    moveq    #0,d0
-    move.b   VHS_Slot2Base,d0
-    lsl.w    #8,d0
-    or.w     #$07,d0
-    move.w   d0,16(a0)                  ; slot 2: WAIT at region base
-    clr.w    22(a0)                      ; slot 2: BPLCON1 = 0
-    movem.l  (sp)+,d0/a0
+VHS_RestoreScreen:
+    tst.b    VHS_NoiseDrawn
+    beq      .done
+    movem.l  d0-d7/a0-a2,-(sp)
+
+    ;--- 1. Restore Noise Bar (VHS_PrevNoiseH scanlines) ---
+    move.w   VHS_PrevNoiseY,d0
+    bmi.s    .no_bar
+    cmp.w    #LEVEL_SCREEN_HEIGHT-VHS_MAX_BAR_H,d0
+    bge.s    .no_bar
+
+    ext.l    d0
+    mulu.w   #TILEMAP_LINE_STRIDE,d0
+    lea      DisplayScreen,a1
+    add.l    d0,a1                       ; a1 -> dest in DisplayScreen
+    lea      VHS_NoiseBarBackup,a0       ; a0 -> source in Fast RAM
+
+    ; Number of longwords to restore = VHS_PrevNoiseH * 40
+    move.w   VHS_PrevNoiseH,d6
+    lsl.w    #3,d6                       ; H * 8
+    move.w   d6,d5
+    lsl.w    #2,d6                       ; H * 32
+    add.w    d5,d6                       ; H * 40
+    subq.w   #1,d6
+
+.res_bar_loop:
+    move.l   (a0)+,(a1)+
+    dbra     d6,.res_bar_loop
+
+    move.w   #-1,VHS_PrevNoiseY
+.no_bar:
+
+    ;--- 2. Restore Streak 1 (1 scanline = 40 longwords) ---
+    move.w   VHS_PrevStreak1Y,d0
+    bmi.s    .no_s1
+    cmp.w    #LEVEL_SCREEN_HEIGHT,d0
+    bge.s    .no_s1
+
+    ext.l    d0
+    mulu.w   #TILEMAP_LINE_STRIDE,d0
+    lea      DisplayScreen,a1
+    add.l    d0,a1
+    lea      VHS_Streak1Backup,a0
+    moveq    #40-1,d6
+.res_s1_loop:
+    move.l   (a0)+,(a1)+
+    dbra     d6,.res_s1_loop
+
+    move.w   #-1,VHS_PrevStreak1Y
+.no_s1:
+
+    ;--- 3. Restore Streak 2 (1 scanline = 40 longwords) ---
+    move.w   VHS_PrevStreak2Y,d0
+    bmi.s    .no_s2
+    cmp.w    #LEVEL_SCREEN_HEIGHT,d0
+    bge.s    .no_s2
+
+    ext.l    d0
+    mulu.w   #TILEMAP_LINE_STRIDE,d0
+    lea      DisplayScreen,a1
+    add.l    d0,a1
+    lea      VHS_Streak2Backup,a0
+    moveq    #40-1,d6
+.res_s2_loop:
+    move.l   (a0)+,(a1)+
+    dbra     d6,.res_s2_loop
+
+    move.w   #-1,VHS_PrevStreak2Y
+.no_s2:
+
+    ;--- 4. Restore Streak 3 (1 scanline = 40 longwords) ---
+    move.w   VHS_PrevStreak3Y,d0
+    bmi.s    .no_s3
+    cmp.w    #LEVEL_SCREEN_HEIGHT,d0
+    bge.s    .no_s3
+
+    ext.l    d0
+    mulu.w   #TILEMAP_LINE_STRIDE,d0
+    lea      DisplayScreen,a1
+    add.l    d0,a1
+    lea      VHS_Streak3Backup,a0
+    moveq    #40-1,d6
+.res_s3_loop:
+    move.l   (a0)+,(a1)+
+    dbra     d6,.res_s3_loop
+
+    move.w   #-1,VHS_PrevStreak3Y
+.no_s3:
+
+    ;--- 5. Restore 'REW  <<' text box (8 scanlines, columns 2..9) ---
+    move.w   VHS_PrevTextY,d0
+    bmi.s    .no_text
+    cmp.w    #LEVEL_SCREEN_HEIGHT-8,d0
+    bge.s    .no_text
+
+    ext.l    d0
+    mulu.w   #TILEMAP_LINE_STRIDE,d0
+    lea      DisplayScreen,a1
+    add.l    d0,a1
+    addq.l   #2,a1                       ; column 2
+    lea      VHS_TextBackup,a0
+    moveq    #8-1,d7
+
+.res_text_loop:
+    move.l   (a0)+,(a1)                  ; Plane 0
+    move.l   (a0)+,4(a1)
+    move.l   (a0)+,40(a1)                ; Plane 1
+    move.l   (a0)+,44(a1)
+    move.l   (a0)+,80(a1)                ; Plane 2
+    move.l   (a0)+,84(a1)
+    move.l   (a0)+,120(a1)               ; Plane 3
+    move.l   (a0)+,124(a1)
+    lea      TILEMAP_LINE_STRIDE(a1),a1
+    dbra     d7,.res_text_loop
+
+    move.w   #-1,VHS_PrevTextY
+.no_text:
+
+    clr.b    VHS_NoiseDrawn
+    movem.l  (sp)+,d0-d7/a0-a2
+.done:
     rts
 
 ;------------------------------------------------------------------------------
-; VHS_DoDistort
-; Each frame: picks a pseudo-random scanline within each of the three screen
-; regions and a colour-clock shift magnitude, then writes a copper WAIT word
-; and BPLCON1 data word into the corresponding cpVHSDistort slot.
-;
-; BPLCON1 format: bits 7-4 = even-plane delay, bits 3-0 = odd-plane delay.
-; Both nibbles are set equal so all bitplanes shift by the same amount.
-; With VHS_HSHIFT_MASK=$05 the possible BPLCON1 values are:
-;   $00 = 0 colour clocks =  0 lo-res pixels  (slot inactive)
-;   $11 = 1 colour clock  =  2 lo-res pixels
-;   $44 = 4 colour clocks =  8 lo-res pixels
-;   $55 = 5 colour clocks = 10 lo-res pixels
-;
-; When the LFSR yields shift=0 a WAIT is still written with BPLCON1=$0000 so
-; no slot blocks the subsequent ones by stalling at an off-screen line.
-;
-; Advances VHS_LFSR by 6 steps (2 per slot).  Preserves all registers.
+; VHS_DrawRewindText
+; Backs up the 8x8 character bounding box to VHS_TextBackup, then renders
+; solid white 'REW  <<' (Color 3 = $0FFF) in the top-left corner of the
+; viewport (at CameraPixelY + 12, column 2).
+; Preserves all registers.
 ;------------------------------------------------------------------------------
 
-VHS_DoDistort:
-    movem.l  d0-d3/a0,-(sp)
+VHS_DrawRewindText:
+    movem.l  d0-d7/a0-a4,-(sp)
+
+    move.w   TilemapCameraY(a5),d0
+    add.w    #12,d0                      ; 12 scanlines below top of viewport
+    cmp.w    #LEVEL_SCREEN_HEIGHT-8,d0
+    bge      .text_done
+    move.w   d0,VHS_PrevTextY
+    move.b   #1,VHS_TextDrawn
+
+    ; 1. Backup text area from DisplayScreen to VHS_TextBackup
+    ext.l    d0
+    mulu.w   #TILEMAP_LINE_STRIDE,d0
+    lea      DisplayScreen,a0
+    add.l    d0,a0
+    addq.l   #2,a0                       ; column 2
+    lea      VHS_TextBackup,a1
+    moveq    #8-1,d7
+
+.bak_text_loop:
+    move.l   (a0),(a1)+                  ; Plane 0
+    move.l   4(a0),(a1)+
+    move.l   40(a0),(a1)+                ; Plane 1
+    move.l   44(a0),(a1)+
+    move.l   80(a0),(a1)+                ; Plane 2
+    move.l   84(a0),(a1)+
+    move.l   120(a0),(a1)+               ; Plane 3
+    move.l   124(a0),(a1)+
+    lea      TILEMAP_LINE_STRIDE(a0),a0
+    dbra     d7,.bak_text_loop
+
+    ; 2. Render text glyphs onto DisplayScreen
+    lea      DisplayScreen,a1
+    add.l    d0,a1
+    addq.l   #2,a1                       ; byte column 2 (X=16px)
+
+    lea      FontData,a2
+    lea      VHS_Str_Rew,a0
+
+.char_loop:
+    moveq    #0,d2
+    move.b   (a0)+,d2
+    beq.s    .text_done
+
+    sub.b    #32,d2
+    lsl.w    #3,d2                       ; d2 = (char - 32) * 8
+    lea      (a2,d2.w),a4                ; a4 -> 8 bytes of glyph
+
+    movea.l  a1,a3                       ; a3 = current column Plane 0
+    moveq    #8-1,d7
+
+.row_loop:
+    move.b   (a4)+,d3                    ; d3 = glyph byte
+    beq.s    .next_row
+
+    ; Bold smear + 1-pixel shadow outline
+    move.b   d3,d4
+    lsr.b    #1,d4
+    or.b     d3,d4                       ; d4 = bold smear
+    move.b   d4,d5
+    lsl.b    #1,d5
+    or.b     d4,d5                       ; d5 = shadow mask (smear + 1px left)
+    not.b    d5                          ; d5 = inverted shadow mask (~shadow)
+
+    ; Plane 0 & Plane 1: mask shadow, set glyph bits (Color 3 = white)
+    and.b    d5,(a3)
+    or.b     d4,(a3)                     ; Plane 0
+    and.b    d5,40(a3)
+    or.b     d4,40(a3)                   ; Plane 1
+
+    ; Plane 2 & Plane 3: clear shadow & glyph bits
+    and.b    d5,80(a3)                   ; Plane 2
+    and.b    d5,120(a3)                  ; Plane 3
+
+.next_row:
+    lea      TILEMAP_LINE_STRIDE(a3),a3  ; next scanline (+160 bytes)
+    dbra     d7,.row_loop
+
+    addq.l   #1,a1                       ; advance to next character column
+    bra.s    .char_loop
+
+.text_done:
+    movem.l  (sp)+,d0-d7/a0-a4
+    rts
+
+;------------------------------------------------------------------------------
+; VHS_DrawNoiseBar
+; Computes dynamic, variable Y position and height for the tracking snow band.
+; Jumps, slips, and rolls organically across the entire screen (lines 10..185).
+; Backs up VHS_PrevNoiseH scanlines to VHS_NoiseBarBackup, then renders dense
+; analog static noise onto DisplayScreen.
+; Preserves all registers.
+;------------------------------------------------------------------------------
+
+VHS_DrawNoiseBar:
+    movem.l  d0-d7/a0-a4,-(sp)
     move.l   VHS_LFSR,d2
-    lea      cpVHSDistort,a0
 
-    ;--- Slot 0: top region (base line VHS_Slot0Base) ---
+    ; 1. Calculate variable advance delta & random tracking slip
     lsr.l    #1,d2
-    bcc.b    .nd0a
+    bcc.s    .step_ok
     eor.l    #VHS_LFSR_POLY,d2
-.nd0a:
-    moveq    #0,d0
-    move.b   d2,d0
-    and.b    #VHS_SLOT_RAND,d0
-    add.b    VHS_Slot0Base,d0       ; d0.b = scanline in region 0
-    lsl.w    #8,d0
-    or.w     #$07,d0                ; d0 = copper WAIT word 1
-    move.w   d0,(a0)               ; patch slot 0 WAIT (always a valid line)
+.step_ok:
 
-    lsr.l    #1,d2
-    bcc.b    .nd0b
-    eor.l    #VHS_LFSR_POLY,d2
-.nd0b:
-    moveq    #0,d3
-    move.b   d2,d3
-    and.b    #VHS_HSHIFT_MASK,d3   ; d3 = shift magnitude 0-3
-    beq.b    .w0                    ; 0 → write $0000 directly
-    move.w   d3,d1
-    lsl.w    #4,d1
-    or.w     d1,d3                  ; d3 = BPLCON1 ($11 / $22 / $33)
-.w0:
-    move.w   d3,6(a0)              ; patch slot 0 BPLCON1 data word
-    addq.l   #8,a0
+    ; 1-in-4 chance of a sudden tracking slip / jump
+    move.w   d2,d1
+    and.w    #$03,d1
+    bne.s    .normal_roll
 
-    ;--- Slot 1: middle region (base line VHS_Slot1Base) ---
-    lsr.l    #1,d2
-    bcc.b    .nd1a
-    eor.l    #VHS_LFSR_POLY,d2
-.nd1a:
-    moveq    #0,d0
-    move.b   d2,d0
-    and.b    #VHS_SLOT_RAND,d0
-    add.b    VHS_Slot1Base,d0
-    lsl.w    #8,d0
-    or.w     #$07,d0
-    move.w   d0,(a0)
+    ; Sudden slip: jump +20..+51 pixels ahead
+    move.w   d2,d1
+    lsr.w    #2,d1
+    and.w    #$1f,d1
+    add.w    #20,d1
+    add.w    d1,VHS_NoiseBarY
+    bra.s    .check_wrap
 
-    lsr.l    #1,d2
-    bcc.b    .nd1b
-    eor.l    #VHS_LFSR_POLY,d2
-.nd1b:
-    moveq    #0,d3
-    move.b   d2,d3
-    and.b    #VHS_HSHIFT_MASK,d3
-    beq.b    .w1
-    move.w   d3,d1
-    lsl.w    #4,d1
-    or.w     d1,d3
-.w1:
-    move.w   d3,6(a0)
-    addq.l   #8,a0
+.normal_roll:
+    ; Variable roll speed: +6 to +13 pixels per frame
+    move.w   d2,d1
+    lsr.w    #2,d1
+    and.w    #$07,d1
+    addq.w   #6,d1
+    add.w    d1,VHS_NoiseBarY
 
-    ;--- Slot 2: bottom region (base line VHS_Slot2Base) ---
-    lsr.l    #1,d2
-    bcc.b    .nd2a
-    eor.l    #VHS_LFSR_POLY,d2
-.nd2a:
-    moveq    #0,d0
-    move.b   d2,d0
-    and.b    #VHS_SLOT_RAND,d0
-    add.b    VHS_Slot2Base,d0
-    lsl.w    #8,d0
-    or.w     #$07,d0
-    move.w   d0,(a0)
+.check_wrap:
+    cmp.w    #185,VHS_NoiseBarY
+    blt.s    .y_in_range
+    ; Wrap around with random entry offset (10..41)
+    move.w   d2,d1
+    lsr.w    #5,d1
+    and.w    #$1f,d1
+    add.w    #10,d1
+    move.w   d1,VHS_NoiseBarY
+.y_in_range:
 
+    ; 2. Variable height: 8 to 15 scanlines
+    move.w   d2,d7
+    lsr.w    #7,d7
+    and.w    #$07,d7
+    addq.w   #8,d7                       ; d7 = height (8..15 scanlines)
+    move.w   d7,VHS_PrevNoiseH
+
+    ; Absolute scanline in DisplayScreen
+    move.w   TilemapCameraY(a5),d0
+    add.w    VHS_NoiseBarY,d0
+    cmp.w    #LEVEL_SCREEN_HEIGHT-VHS_MAX_BAR_H,d0
+    bge      .bar_done
+    move.w   d0,VHS_PrevNoiseY
+
+    ;--- 3. Backup d7 scanlines from DisplayScreen to VHS_NoiseBarBackup ---
+    ext.l    d0
+    mulu.w   #TILEMAP_LINE_STRIDE,d0
+    lea      DisplayScreen,a0
+    add.l    d0,a0                       ; a0 -> source in DisplayScreen
+    lea      VHS_NoiseBarBackup,a1       ; a1 -> dest in Fast RAM
+
+    ; Number of longwords to copy = d7 * 40
+    move.w   d7,d6
+    lsl.w    #3,d6                       ; d7 * 8
+    move.w   d6,d5
+    lsl.w    #2,d6                       ; d7 * 32
+    add.w    d5,d6                       ; d6 = d7 * 40 longwords
+    subq.w   #1,d6
+
+.bak_bar_loop:
+    move.l   (a0)+,(a1)+
+    dbra     d6,.bak_bar_loop
+
+    ;--- 4. Render variable analog LFSR snow band onto DisplayScreen ---
+    lea      DisplayScreen,a1
+    add.l    d0,a1                       ; a1 -> Plane 0
+
+    subq.w   #1,d7                       ; for dbra scanlines
+
+.bar_row_loop:
+    movea.l  a1,a0                       ; a0 = Plane 0 for this scanline
+    moveq    #10-1,d6                    ; 10 longwords = 40 bytes
+
+.chunk_loop:
     lsr.l    #1,d2
-    bcc.b    .nd2b
+    bcc.s    .np1
     eor.l    #VHS_LFSR_POLY,d2
-.nd2b:
-    moveq    #0,d3
-    move.b   d2,d3
-    and.b    #VHS_HSHIFT_MASK,d3
-    beq.b    .w2
-    move.w   d3,d1
-    lsl.w    #4,d1
-    or.w     d1,d3
-.w2:
-    move.w   d3,6(a0)
+.np1:
+    move.l   d2,d3
+    lsr.l    #1,d3
+    or.l     d3,d2                       ; horizontal analog smear
+
+    ; Write noise to Plane 0 & Plane 1 (creates brilliant white snow dots)
+    move.l   d2,(a0)                     ; Plane 0
+    move.l   d2,40(a0)                   ; Plane 1
+
+    ; Secondary noise on Plane 2 for color static variation
+    move.l   d2,d4
+    eor.l    #$55555555,d4
+    move.l   d4,80(a0)                   ; Plane 2
+    clr.l    120(a0)                     ; Plane 3 = 0
+
+    addq.l   #4,a0                       ; next longword
+    dbra     d6,.chunk_loop
+
+    lea      TILEMAP_LINE_STRIDE(a1),a1  ; next scanline
+    dbra     d7,.bar_row_loop
+
+.bar_done:
+    move.l   d2,VHS_LFSR
+    movem.l  (sp)+,d0-d7/a0-a4
+    rts
+
+;------------------------------------------------------------------------------
+; VHS_DrawStreaks
+; Generates 3 dynamic static streaks scattered at random scanlines across the
+; entire viewport (lines 15..200). Ensures no streak collides with the snow bar.
+; Preserves all registers.
+;------------------------------------------------------------------------------
+
+VHS_DrawStreaks:
+    movem.l  d0-d4/a2,-(sp)
+    move.l   VHS_LFSR,d2
+
+    ;--- Streak 1: Upper / Mid region (scanlines 22..85) ---
+    lsr.l    #1,d2
+    bcc.s    .s1_poly
+    eor.l    #VHS_LFSR_POLY,d2
+.s1_poly:
+    move.w   d2,d1
+    and.w    #$3f,d1                     ; 0..63
+    add.w    #22,d1                      ; 22..85
+    bsr      .check_bar_collision
+    move.w   TilemapCameraY(a5),d0
+    add.w    d1,d0
+    move.w   d0,VHS_PrevStreak1Y
+    lea      VHS_Streak1Backup,a2
+    bsr      VHS_DrawSingleNoiseStreak
+
+    ;--- Streak 2: Mid / Lower region (scanlines 95..158) ---
+    swap     d2
+    lsr.l    #1,d2
+    bcc.s    .s2_poly
+    eor.l    #VHS_LFSR_POLY,d2
+.s2_poly:
+    move.w   d2,d1
+    and.w    #$3f,d1                     ; 0..63
+    add.w    #95,d1                      ; 95..158
+    bsr      .check_bar_collision
+    move.w   TilemapCameraY(a5),d0
+    add.w    d1,d0
+    move.w   d0,VHS_PrevStreak2Y
+    lea      VHS_Streak2Backup,a2
+    bsr      VHS_DrawSingleNoiseStreak
+
+    ;--- Streak 3: Full-range wild streak (scanlines 35..185) ---
+    lsr.l    #1,d2
+    bcc.s    .s3_poly
+    eor.l    #VHS_LFSR_POLY,d2
+.s3_poly:
+    move.w   d2,d1
+    and.w    #$7f,d1                     ; 0..127
+    add.w    #35,d1                      ; 35..162
+    bsr      .check_bar_collision
+    move.w   TilemapCameraY(a5),d0
+    add.w    d1,d0
+    move.w   d0,VHS_PrevStreak3Y
+    lea      VHS_Streak3Backup,a2
+    bsr      VHS_DrawSingleNoiseStreak
+
+    swap     d2
+    move.l   d2,VHS_LFSR
+    movem.l  (sp)+,d0-d4/a2
+    rts
+
+; Helper: If d1 is within VHS_NoiseBarY .. VHS_NoiseBarY + VHS_PrevNoiseH + 2, offset away!
+.check_bar_collision:
+    move.w   VHS_NoiseBarY,d3
+    subq.w   #2,d3
+    cmp.w    d3,d1
+    blt.s    .col_ok
+    add.w    VHS_PrevNoiseH,d3
+    addq.w   #4,d3
+    cmp.w    d3,d1
+    bgt.s    .col_ok
+    add.w    #25,d1
+    cmp.w    #195,d1
+    blt.s    .col_ok
+    sub.w    #55,d1
+.col_ok:
+    rts
+
+;------------------------------------------------------------------------------
+; VHS_DrawSingleNoiseStreak
+; In: d0.w = scanline Y in DisplayScreen, a2 = backup buffer pointer in Fast RAM
+; Backs up 1 scanline (40 longwords) to a2, then writes LFSR noise.
+; Preserves all registers.
+;------------------------------------------------------------------------------
+
+VHS_DrawSingleNoiseStreak:
+    cmp.w    #LEVEL_SCREEN_HEIGHT,d0
+    bge.s    .sn_done
+    movem.l  d0-d6/a0-a2,-(sp)
+
+    ext.l    d0
+    mulu.w   #TILEMAP_LINE_STRIDE,d0
+    lea      DisplayScreen,a0
+    add.l    d0,a0                       ; a0 -> scanline in DisplayScreen
+
+    ; 1. Backup 1 scanline (40 longwords = 160 bytes) to Fast RAM
+    movea.l  a0,a1
+    moveq    #40-1,d6
+.sn_bak:
+    move.l   (a1)+,(a2)+
+    dbra     d6,.sn_bak
+
+    ; 2. Render LFSR noise static line
+    move.l   VHS_LFSR,d2
+    movea.l  a0,a1                       ; a1 -> Plane 0
+    moveq    #10-1,d6
+.sn_loop:
+    lsr.l    #1,d2
+    bcc.s    .sn_p
+    eor.l    #VHS_LFSR_POLY,d2
+.sn_p:
+    move.l   d2,(a1)
+    move.l   d2,40(a1)
+    clr.l    80(a1)
+    clr.l    120(a1)
+    addq.l   #4,a1
+    dbra     d6,.sn_loop
 
     move.l   d2,VHS_LFSR
-    movem.l  (sp)+,d0-d3/a0
+    movem.l  (sp)+,d0-d6/a0-a2
+.sn_done:
     rts
 
 ;------------------------------------------------------------------------------
-; VHS_DoRoll
-; Manages the one-frame vertical roll blip.  Every VHS_ROLL_INTERVAL frames
-; all five BPLxPTH/L pairs in cpPlanes are offset by +VHS_ROLL_BYTES, causing
-; the display to jump up by VHS_ROLL_LINES rows (the bottom rows show data
-; past the screen buffer for an authentic corrupted-field look).  The following
-; frame the pointers are restored to the normal DisplayScreen base.
+; VHS_ApplyCopperTears
+; Patches three scanline bands in cpGameSky with BPLCON1 delay moves, causing
+; hardware-level horizontal tearing of the playfield across those lines.
 ; Preserves all registers.
 ;------------------------------------------------------------------------------
 
-VHS_DoRoll:
-    movem.l  d0/d7/a0,-(sp)
+VHS_ApplyCopperTears:
+    movem.l  d0-d4/a0-a1,-(sp)
+    move.l   VHS_LFSR,d2
+    lea      cpGameSky,a0
+    lea      VHS_TearShifts,a1
 
-    tst.b    VHS_RollActive
-    beq.b    .rcheck
+    ; --- Tear Band 1 (Upper region: lines 12..35, tearing across 'REW <<' & sky) ---
+    lsr.l    #1,d2
+    bcc.s    .tp1
+    eor.l    #VHS_LFSR_POLY,d2
+.tp1:
+    move.w   d2,d0
+    and.w    #$1f,d0
+    add.w    #12,d0                      ; d0 = LineA (12..43)
+    move.w   d0,VHS_Tear1_Start
 
-    ; Roll was active last frame: restore plane pointers now
-    clr.b    VHS_RollActive
-    bsr      VHS_RestorePlanes
-    bra.b    .rd
+    move.w   d2,d1
+    lsr.w    #5,d1
+    and.w    #$07,d1
+    addq.w   #4,d1                       ; d1 = HeightA (4..11)
+    add.w    d0,d1                       ; d1 = LineA + HeightA
+    move.w   d1,VHS_Tear1_End
 
-.rcheck:
-    subq.w   #1,VHS_RollTimer
-    bne.b    .rd
+    ; Shift magnitude for Tear 1
+    move.w   d2,d3
+    lsr.w    #8,d3
+    and.w    #$07,d3
+    add.w    d3,d3
+    move.w   (a1,d3.w),d4                ; d4 = shift word (e.g. $00CC)
 
-    ; Timer expired: apply a one-frame roll offset to all bitplane pointers
-    move.w   #VHS_ROLL_INTERVAL,VHS_RollTimer
-    move.b   #1,VHS_RollActive
-    move.w   TilemapCameraY(a5),d0
-    mulu.w   #TILEMAP_LINE_STRIDE,d0
-    add.l    #DisplayScreen,d0
-    add.l    #VHS_ROLL_BYTES,d0    ; base + camera offset + roll delta
-    lea      cpPlanes,a0
-    moveq    #SCREEN_DEPTH-1,d7
-.rloop:
-    PLANE_TO_COPPER  d0,a0        ; write rolled high+low address words
-    add.l    #SCREEN_WIDTH_BYTE,d0
-    addq.l   #8,a0
-    dbra     d7,.rloop
+    ; Patch entry LineA
+    move.w   d0,d3
+    lsl.w    #3,d3                       ; d3 = LineA * 8
+    move.w   6(a0,d3.w),VHS_Tear1_ColorS ; save original color
+    move.w   #$0102,4(a0,d3.w)           ; write BPLCON1 register
+    move.w   d4,6(a0,d3.w)               ; write shift delay
 
-.rd:
-    movem.l  (sp)+,d0/d7/a0
+    ; Patch entry LineA + HeightA (reset to 0)
+    move.w   d1,d3
+    lsl.w    #3,d3                       ; d3 = (LineA + HeightA) * 8
+    move.w   6(a0,d3.w),VHS_Tear1_ColorE ; save original color
+    move.w   #$0102,4(a0,d3.w)           ; write BPLCON1 register
+    move.w   #$0000,6(a0,d3.w)           ; shift = 0
+
+    ; --- Tear Band 2 (Mid region: lines 60..95) ---
+    lsr.l    #1,d2
+    bcc.s    .tp2
+    eor.l    #VHS_LFSR_POLY,d2
+.tp2:
+    move.w   d2,d0
+    and.w    #$1f,d0
+    add.w    #60,d0                      ; d0 = LineB (60..91)
+    move.w   d0,VHS_Tear2_Start
+
+    move.w   d2,d1
+    lsr.w    #5,d1
+    and.w    #$07,d1
+    addq.w   #5,d1                       ; d1 = HeightB (5..12)
+    add.w    d0,d1                       ; d1 = LineB + HeightB
+    move.w   d1,VHS_Tear2_End
+
+    ; Shift magnitude for Tear 2
+    move.w   d2,d3
+    lsr.w    #8,d3
+    and.w    #$07,d3
+    add.w    d3,d3
+    move.w   (a1,d3.w),d4
+
+    ; Patch entry LineB
+    move.w   d0,d3
+    lsl.w    #3,d3
+    move.w   6(a0,d3.w),VHS_Tear2_ColorS
+    move.w   #$0102,4(a0,d3.w)
+    move.w   d4,6(a0,d3.w)
+
+    ; Patch entry LineB + HeightB (reset to 0)
+    move.w   d1,d3
+    lsl.w    #3,d3
+    move.w   6(a0,d3.w),VHS_Tear2_ColorE
+    move.w   #$0102,4(a0,d3.w)
+    move.w   #$0000,6(a0,d3.w)
+
+    ; --- Tear Band 3 (Lower region: lines 120..160) ---
+    lsr.l    #1,d2
+    bcc.s    .tp3
+    eor.l    #VHS_LFSR_POLY,d2
+.tp3:
+    move.w   d2,d0
+    and.w    #$1f,d0
+    add.w    #120,d0                     ; d0 = LineC (120..151)
+    move.w   d0,VHS_Tear3_Start
+
+    move.w   d2,d1
+    lsr.w    #5,d1
+    and.w    #$07,d1
+    addq.w   #5,d1                       ; d1 = HeightC (5..12)
+    add.w    d0,d1                       ; d1 = LineC + HeightC
+    move.w   d1,VHS_Tear3_End
+
+    ; Shift magnitude for Tear 3
+    move.w   d2,d3
+    lsr.w    #8,d3
+    and.w    #$07,d3
+    add.w    d3,d3
+    move.w   (a1,d3.w),d4
+
+    ; Patch entry LineC
+    move.w   d0,d3
+    lsl.w    #3,d3
+    move.w   6(a0,d3.w),VHS_Tear3_ColorS
+    move.w   #$0102,4(a0,d3.w)
+    move.w   d4,6(a0,d3.w)
+
+    ; Patch entry LineC + HeightC (reset to 0)
+    move.w   d1,d3
+    lsl.w    #3,d3
+    move.w   6(a0,d3.w),VHS_Tear3_ColorE
+    move.w   #$0102,4(a0,d3.w)
+    move.w   #$0000,6(a0,d3.w)
+
+    move.b   #1,VHS_TearActive
+    move.l   d2,VHS_LFSR
+    movem.l  (sp)+,d0-d4/a0-a1
     rts
 
 ;------------------------------------------------------------------------------
-; VHS_RestorePlanes
-; Writes the canonical DisplayScreen-based addresses back into cpPlanes,
-; undoing any roll offset and preserving the active camera Y.
-; Called by VHS_DoRoll and VHS_StopEffect.
+; VHS_RestoreCopperTears
+; Restores patched BPLCON1 entries in cpGameSky back to COLOR00 moves.
 ; Preserves all registers.
 ;------------------------------------------------------------------------------
 
-VHS_RestorePlanes:
-    movem.l  d0/d7/a0,-(sp)
-    move.w   TilemapCameraY(a5),d0
-    mulu.w   #TILEMAP_LINE_STRIDE,d0
-    add.l    #DisplayScreen,d0
-    lea      cpPlanes,a0
-    moveq    #SCREEN_DEPTH-1,d7
-.rp:
-    PLANE_TO_COPPER  d0,a0
-    add.l    #SCREEN_WIDTH_BYTE,d0
-    addq.l   #8,a0
-    dbra     d7,.rp
-    movem.l  (sp)+,d0/d7/a0
+VHS_RestoreCopperTears:
+    tst.b    VHS_TearActive
+    beq      .done
+    movem.l  d0/a0,-(sp)
+    lea      cpGameSky,a0
+
+    ; Restore Tear 1 start & end
+    move.w   VHS_Tear1_Start,d0
+    lsl.w    #3,d0
+    move.w   #$0180,4(a0,d0.w)
+    move.w   VHS_Tear1_ColorS,6(a0,d0.w)
+    move.w   VHS_Tear1_End,d0
+    lsl.w    #3,d0
+    move.w   #$0180,4(a0,d0.w)
+    move.w   VHS_Tear1_ColorE,6(a0,d0.w)
+
+    ; Restore Tear 2 start & end
+    move.w   VHS_Tear2_Start,d0
+    lsl.w    #3,d0
+    move.w   #$0180,4(a0,d0.w)
+    move.w   VHS_Tear2_ColorS,6(a0,d0.w)
+    move.w   VHS_Tear2_End,d0
+    lsl.w    #3,d0
+    move.w   #$0180,4(a0,d0.w)
+    move.w   VHS_Tear2_ColorE,6(a0,d0.w)
+
+    ; Restore Tear 3 start & end
+    move.w   VHS_Tear3_Start,d0
+    lsl.w    #3,d0
+    move.w   #$0180,4(a0,d0.w)
+    move.w   VHS_Tear3_ColorS,6(a0,d0.w)
+    move.w   VHS_Tear3_End,d0
+    lsl.w    #3,d0
+    move.w   #$0180,4(a0,d0.w)
+    move.w   VHS_Tear3_ColorE,6(a0,d0.w)
+
+    clr.b    VHS_TearActive
+    movem.l  (sp)+,d0/a0
+.done:
     rts

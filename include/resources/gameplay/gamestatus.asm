@@ -25,22 +25,22 @@
 ;       Checks F1/F2 for level navigation (debug), reads player controls,
 ;       and calls PlayerLogic to advance the active player action state machine.
 ;
-;    3 - LEVEL_INIT  (dispatches to LevelTransitionRun in mapstuff.asm)
+;    3 - LEVEL_INIT  (dispatches to LevelTransitionRun in levelutils.asm)
 ;        One-shot per-level initialisation.  Called when a new level is loaded
 ;        and ready to play, but before the wipe effect starts.  Sets up the
 ;        wipe pattern and tile order, then advances GameStatus to LEVEL_WIPE (4).
 
-;   4 - LEVEL_WIPE  (dispatches to LevelTransitionRun in mapstuff.asm)
+;   4 - LEVEL_WIPE  (dispatches to LevelTransitionRun in levelutils.asm)
 ;       Per-frame handler while the end-of-level wipe is running.
 ;       Blits WIPE_SPEED tiles black per frame until all 126 tiles are done,
 ;       then advances to LEVEL_HOLD (4).
 ;
-;   5 - LEVEL_HOLD  (dispatches to LevelTransitionRun in mapstuff.asm)
+;   5 - LEVEL_HOLD  (dispatches to LevelTransitionRun in levelutils.asm)
 ;       Holds the all-black screen while the next level is built into NonDisplayScreen.
 ;       Counts down WipeHoldTick, then calls LevelRevealSetup and advances to
 ;       LEVEL_REVEAL (5).
 ;
-;   6 - LEVEL_REVEAL  (dispatches to LevelTransitionRun in mapstuff.asm)
+;   6 - LEVEL_REVEAL  (dispatches to LevelTransitionRun in levelutils.asm)
 ;       Per-frame handler for the level-entry reverse-wipe reveal.
 ;       Restores WIPE_SPEED tiles from NonDisplayScreen to DisplayScreen per frame,
 ;       then draws actors and returns to GameRun (2).
@@ -183,6 +183,13 @@ GameCopperInit:
 ;==============================================================================
 
 GameStatusRun:
+    ; Non-priority blit states transition immediately to logic color (Green/Red)
+    cmp.w       #GAME_RUN,GameStatus(a5)
+    beq.s       .dispatch
+    cmp.w       #GAME_COMPLETE_RUN,GameStatus(a5)
+    beq.s       .dispatch
+    bsr         SetRasterLogicColor
+.dispatch:
     move.w      GameStatus(a5),d0    ; load current state index
     cmp.w       #(.i_end-.i)/2,d0    ; index beyond the dispatch table?
     bcc         FaultTrap            ; corrupt state -> red screen, not a wild jump
@@ -192,10 +199,10 @@ GameStatusRun:
     dc.w        LoadingSetup-.i           ; state 0 -> LoadingSetup          (in loading.asm)
     dc.w        LoadingRun-.i             ; state 1 -> LoadingRun            (in loading.asm)
     dc.w        GameRun-.i              ; state 2 -> GameRun             (below)
-    dc.w        LevelTransitionRun-.i   ; state 3 -> LEVEL_INIT phase    (in mapstuff.asm)
-    dc.w        LevelTransitionRun-.i   ; state 4 -> LEVEL_WIPE phase    (in mapstuff.asm)
-    dc.w        LevelTransitionRun-.i   ; state 5 -> LEVEL_HOLD phase    (in mapstuff.asm)
-    dc.w        LevelTransitionRun-.i   ; state 6 -> LEVEL_REVEAL phase  (in mapstuff.asm)
+    dc.w        LevelTransitionRun-.i   ; state 3 -> LEVEL_INIT phase    (in levelutils.asm)
+    dc.w        LevelTransitionRun-.i   ; state 4 -> LEVEL_WIPE phase    (in levelutils.asm)
+    dc.w        LevelTransitionRun-.i   ; state 5 -> LEVEL_HOLD phase    (in levelutils.asm)
+    dc.w        LevelTransitionRun-.i   ; state 6 -> LEVEL_REVEAL phase  (in levelutils.asm)
     dc.w        LevelCompleteSetup-.i   ; state 7 -> LEVEL_COMPLETE_SETUP (in levelcomplete.asm)
     dc.w        LevelCompleteRun-.i     ; state 8 -> LEVEL_COMPLETE_RUN  (in levelcomplete.asm)
     dc.w        TitleSetup-.i           ; state 9 -> TITLE_SETUP          (in titlescreen.asm)
@@ -241,40 +248,33 @@ StateIdle:
 ; To achieve perfectly smooth, tear-free rendering without double-buffering latency,
 ; GameRun partitions every video frame into two strict phases:
 ;
-;   Phase 1: CPU Game Logic & Collision (Early VBlank, Scanlines 0..15)
-;     - Evaluates level victory condition (LevelTest / CheckLevelDone)
-;     - Processes debug input, quit requests, and Slow Mode stepping
-;     - Samples joystick and keyboard into trigger/hold bitmasks (UpdateControls)
-;     - Runs Player action state machine (PlayerLogic: idle, move, fall, attack, death)
-;     - Executes 2D AABB collision detection (Friends, Oxygen pickups, Enemies)
-;     - Updates dynamic camera tracking (TilemapCameraY)
-;     - Advances environmental physics (rising water accumulator, player oxygen/submersion)
-;     - Updates hardware sprite Copper pointers (UpdateHUDSprites: Lives, Gauge, Bubbles)
-;
-;   Phase 2: Blitter Raster Rendering Pipeline (Early VBlank -> Beam Traversal)
+;   Phase 1: Blitter Raster Rendering Pipeline (True VBlank, Scanlines 0..25)
 ;     - Beam Race Prevention: In top-of-screen rows (lines 44..108), the PAL beam
 ;       reaches display memory very quickly after VBlank. Player BOB erasure and
-;       re-drawing are executed FIRST (lines 15..26) while the electron gun is still
+;       re-drawing are executed FIRST (lines 0..20) while the electron gun is still
 ;       blanked, completely preventing visible flicker or scanline tearing!
 ;     - Player Footprint Pipeline:
 ;         1. TilemapErasePlayer: restores clean background from NonDisplayScreen
 ;         2. TilemapDrawPlayer: blits player BOB with cookie-cutter mask ($0FCA)
 ;         3. TilemapRestorePlayerOverlaps: re-blits entities caught in player's erase span
-;     - Dynamic Enemies:
-;         * TilemapUpdateEnemies: patrol movement, stun countdown, sub-pixel blits
-;         * Layering: if an enemy overlaps the player, the player is re-blitted
-;           underneath before the enemy cookie-cuts on top
-;     - Particle & Ambient Systems:
-;         * ActionCloudActors: enemy death puff animations
-;         * AnimateEnemies: legacy tile cycling (2fps)
-;         * ActionDirtActors: dirt crumble particles
-;     - In-World Interactive Objects:
-;         * TilemapDrawPushBlocks: dynamic pushable crates
-;         * TilemapDrawOxygen: collectible oxygen tanks
-;         * TilemapUpdateFriends: animated animal friends
-;     - FlushDirtyTiles: flushes settled actors to screen
-;     - Post-Processing:
-;         * VHS_DoFrame: palette noise and scanline jitter during undo rewind
+;         4. TilemapSubmergePlayer: applies water tinting to player BOB if submerged
+;     - Priority Summit Enemies:
+;         * TilemapUpdateTopEnemies: update & blit priority enemies in Rows 0..2 (<48)
+;     - Profiler Transition: SetRasterLogicColor transitions raster bar from Yellow to Green
+;
+;   Phase 2: Game Logic & Beam Chasing (Active Raster, Scanlines 25..311)
+;     - Beam Chasing Dynamic Enemies:
+;         * TilemapUpdateLowerEnemies: update & blit lower enemies in Rows 3+ (>=48)
+;     - CPU Game Logic & Collision:
+;         * UpdateControls: read keyboard/joystick into trigger/hold bitmasks
+;         * PlayerLogic: advance active Player action state machine (walk, jump, fall, swim)
+;         * PlayerCheckFriends: collision check against duckling companions
+;         * PlayerCheckOxygen: collision check against oxygen refill tanks
+;         * PlayerCheckEnemies: 2D AABB bounding-box collision check against hazards
+;         * TilemapUpdateCamera: dynamically scroll camera if player moves up/down
+;         * TilemapUpdateWater: advance rising water layer (16px per 10 seconds)
+;         * PlayerUpdateOxygen: calculate submersion, oxygen depletion & safe ground
+;         * UpdateHUDSprites: update Lives, Oxygen, and Bubble hardware sprite pointers
 ;
 ; In: a5 = Variables base, a6 = CUSTOM ($dff000)
 ; Destroys: d0-d7, a0-a4 (preserves a5, a6)
@@ -340,6 +340,7 @@ GameRun:
 .p_toggled_off:
     ; Toggled OFF: erase pause banner cleanly
     bsr         TilemapErasePauseBanner
+    clr.w       VBlankOverrunCount(a5)  ; clear unpause redraw overruns
 .no_key_p:
 
     ; Check if game is paused
@@ -348,6 +349,19 @@ GameRun:
     ; Paused: skip all gameplay updates and render pipeline
     bra         .skip
 .not_paused:
+
+    ; Clear any VBlank overruns accumulated during the unwind / restore frame
+    tst.b       VHS_JustFinished
+    beq.s       .no_post_unwind
+    clr.b       VHS_JustFinished
+    clr.w       VBlankOverrunCount(a5)  ; clean 0 overruns post unwind
+.no_post_unwind:
+
+    ; Restore previous frame's VHS noise bar & streaks before rendering starts
+    tst.b       VHS_NoiseDrawn
+    beq.s       .no_vhs_restore
+    bsr         VHS_RestoreScreen
+.no_vhs_restore:
 
     ; -------------------------------------------------------------------------
     ; 'S' Key: Toggle SLOW MODE / Frame Step Debugger
@@ -395,6 +409,7 @@ GameRun:
 
 .slow_paused:
     ; Paused in SLOW MODE: keep debug overlay drawn and fresh with MODE:SLOW
+    bsr         SetRasterLogicColor
     bsr         TilemapDrawDebugOverlay
     bra         .check_debug_keys
 
@@ -410,6 +425,10 @@ GameRun:
     bsr         TilemapErasePlayer   ; restore pristine background at player's previous footprint
     bsr         TilemapDrawPlayer    ; draw player BOB with PlayerMsk ($0FCA cookie-cutter) + foreground stamp
     bsr         TilemapRestorePlayerOverlaps ; restore any adjacent entities wiped by player erase
+    bsr         TilemapSubmergePlayer ; apply water tinting to player BOB
+    bsr         TilemapUpdateTopEnemies ; update & blit priority enemies in Rows 0..2 (ScreenY < 48)
+    bsr         SetRasterLogicColor  ; All VBlank priority blits complete -> switch from Yellow to Green/Red
+    bsr         TilemapUpdateLowerEnemies ; chase beam: update & blit lower enemies in Rows 3+ (ScreenY >= 48)
 
     ; -------------------------------------------------------------------------
     ; 2. CPU-Side Game Logic & Collision Phase (Active Raster, Scanlines 20..100)
@@ -427,13 +446,6 @@ GameRun:
     bsr         TilemapUpdateWater   ; advance rising water layer (16px per 10 seconds)
     bsr         PlayerUpdateOxygen   ; update submersion, oxygen depletion/refill & safe ground
     bsr         UpdateHUDSprites     ; update Lives, Oxygen, and Bubble hardware sprites
-
-    ; -------------------------------------------------------------------------
-    ; 3. Blitter Raster Pipeline: Dynamic Enemies (Scanlines 26..32)
-    ; -------------------------------------------------------------------------
-    ; If an enemy overlaps the player (e.g. stunned), TilemapUpdateEnemies re-blits
-    ; the player underneath using PlayerMsk before drawing the enemy on top.
-    bsr         TilemapUpdateEnemies ; update dynamic enemy patrol movement, animation & blit
 
     ; -------------------------------------------------------------------------
     ; 4. Particle Systems & Ambient Effects
@@ -466,6 +478,9 @@ GameRun:
     tst.b       VHS_StateActive
     beq.s       .no_vhs
     bsr         VHS_DoFrame          ; palette noise + scanline jitter; self-stops
+    tst.w       d0                   ; 0 = effect just finished this frame
+    bne.s       .no_vhs
+    clr.w       VBlankOverrunCount(a5)  ; clear post-unwind overruns
 .no_vhs:
 
 .check_debug_keys:

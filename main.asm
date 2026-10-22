@@ -106,16 +106,13 @@ MainLoop:
     beq.s      .waitframe
     clr.w      FramePending(a5)    ; consume it (missed frames are skipped, not queued)
 
-    ; Raster profiler: DebugMode=2 (F5 then F3) marks CPU time with a colour
-    ; bar — green normally (healthy 50 FPS budget), red once any frame has overrun.
+    ; Raster profiler: DebugMode=2 (F5 then F3) profiles the frame in phases:
+    ;   - Yellow ($FF0): VBlank priority blits (must complete before scanline 44)
+    ;   - Green  ($0F0): Active game logic & secondary blits (switched via SetRasterLogicColor)
+    ;   - Red    ($F00): Frame overrun alert
     cmp.w      #2,DebugMode(a5)
     bne.s      .no_bar_start
-    move.w     #DEBUG_RASTER_COLOR,d0
-    tst.w      VBlankOverrunCount(a5)
-    beq.s      .bar_normal
-    move.w     #DEBUG_RASTER_OVERRUN,d0
-.bar_normal
-    move.w     d0,COLOR00(a6)
+    move.w     #DEBUG_RASTER_VBLANK,COLOR00(a6)
 .no_bar_start
 
     bsr        GameStatusRun       ; one frame of the current game state
@@ -158,15 +155,43 @@ QuitToOS:
     rts
 
 ;==============================================================================
-; Init  -  Minimal game initialisation
+; SetRasterLogicColor  -  Transition raster bar from Yellow to Green/Red
 ;
-; Initialises the game-state variable and installs the keyboard handler.
-; Additional copper / sprite / level setup is currently commented out; those
-; operations are now driven by the GameStatus state machine (LoadingSetup ->
-; GameInit path) rather than being done unconditionally at startup.
+; Called when upfront VBlank priority blits (player, duck) complete.
+; Switches COLOR00 from DEBUG_RASTER_VBLANK ($FF0) to DEBUG_RASTER_COLOR ($0F0),
+; or DEBUG_RASTER_OVERRUN ($F00) if an overrun occurred.
+; Preserves all registers.
+;==============================================================================
+
+SetRasterLogicColor:
+    cmp.w      #2,DebugMode(a5)
+    bne.s      .exit
+    move.w     d0,-(sp)
+    move.w     #DEBUG_RASTER_COLOR,d0
+    tst.w      VBlankOverrunCount(a5)
+    beq.s      .ok
+    move.w     #DEBUG_RASTER_OVERRUN,d0
+.ok:
+    move.w     d0,COLOR00(a6)
+    move.w     (sp)+,d0
+.exit:
+    rts
+
+;==============================================================================
+; Init  -  Engine bootstrap and hardware environment initialisation
+;
+; Prepares initial game state variables, detects PAL vs NTSC video raster timing,
+; detects OCS vs ECS/AGA Denise chipset revisions, initialises PTPlayer audio
+; drivers, attaches the CIA-A keyboard interrupt, generates flipped player BOBs
+; in Chip RAM, and installs fault trap vectors for robust crash debugging.
+;
+; Subsequent screen transitions (splash banner -> ZX loading -> title menu ->
+; gameplay) are driven dynamically by the GameStatus FSM in gamestatus.asm.
 ;
 ; Called from Restart before the VBlank interrupt is enabled.
-; a5 and a6 must already be loaded.
+; On entry:
+;   a5 = Variables base pointer
+;   a6 = CUSTOM chip base ($dff000)
 ;==============================================================================
 
 Init:
@@ -398,6 +423,19 @@ VBlankTick:
     move.w     d0,INTREQ(a6)
     move.w     d0,INTREQ(a6)                        ; twice to avoid a4k hw bug
 
+    ; NTSC speed normalisation: the game is authored for 50 Hz PAL (all
+    ; movement speeds, animation rates and timers are "per logic tick").
+    ; NTSC fires 60 VBlanks/s, so we withhold the logic tick on every 6th
+    ; VBlank: 60 * 5/6 = 50 ticks/s, identical game speed to PAL.  On the
+    ; skipped VBlank the display simply holds the previous frame.
+    tst.w      IsPAL(a5)
+    bne.s      .tick                                ; PAL: every VBlank is a tick
+    addq.w     #1,NtscSkipPhase(a5)
+    cmp.w      #6,NtscSkipPhase(a5)
+    blt.s      .tick
+    clr.w      NtscSkipPhase(a5)
+    bra.s      .exit                                ; 6th NTSC VBlank: no logic tick
+.tick
     addq.w     #1,TickCounter(a5)
 
     tst.w      FramePending(a5)    ; previous frame still unconsumed?
@@ -465,9 +503,9 @@ VBlankTick:
 ;
 ; Contents:
 ;   Quadratic / Sinus            - pre-computed easing / sine tables (binary)
-;   SpritePal                    - hardware sprite palette (sprites.pal)
+;   PlayerPal / SpritePal        - hardware sprite / player palette (player.pal)
 ;   CopperSkyTable               - copper background gradient line tables
-;   Level Definitions            - multi-layer TMX definitions (level_01_entities.asm..level_04_entities.asm)
+;   Level Definitions            - multi-layer TMX definitions (level_01_entities.asm..level_06_entities.asm)
 ;   LevelTable                   - pointer table pointing to each LevelDef
 ;   Michroma font                - proportional font data for placards/banners
 ;==============================================================================
@@ -490,10 +528,11 @@ SinusEnd:
 
 ;------------------------------------------------------------------------------
 ; Palettes (read by the CPU only — Fast RAM is fine)
-;   SpritePal   - hardware sprite palette (COLOR16-31)
+;   PlayerPal / SpritePal - hardware sprite / player palette (COLOR16-31)
 ;------------------------------------------------------------------------------
+PlayerPal:
 SpritePal:
-    incbin     "assets/graphics/sprites/sprites.pal"
+    incbin     "assets/graphics/player/player.pal"
 
 CopperSkyTable:
     incbin     "assets/graphics/copper/copper_sky.bin"
@@ -593,12 +632,12 @@ GCDucklingRaw:
 ;------------------------------------------------------------------------------
 ; Level-complete player headshots & palettes (Fast RAM — staged into Chip RAM)
 ;------------------------------------------------------------------------------
-HeadshotDeniseRaw:
-    incbin      "assets/graphics/headshots/headshot_denise_128x64.raw"
+HeadshotMiaRaw:
+    incbin      "assets/graphics/headshots/headshot_mia_128x64.raw"
     even
 
-HeadshotDenisePal:
-    incbin      "assets/graphics/headshots/headshot_denise.pal"
+HeadshotMiaPal:
+    incbin      "assets/graphics/headshots/headshot_mia.pal"
     even
 
 ;------------------------------------------------------------------------------
@@ -692,24 +731,24 @@ AnimalSpritesMsk:
 ;------------------------------------------------------------------------------
 ; Player Character BOB Master Sheets (Chip RAM — Blitter DMA source)
 ;
-; Denise's right-facing master graphics (24 frames, 16 colours, 4 bitplanes).
+; Mia's right-facing master graphics (24 frames, 16 colours, 4 bitplanes).
 ; Pre-loaded into Chip RAM so the Blitter can read them directly without
 ; runtime copying.
 ; Total: 3 * 9,216 = 27,648 bytes.
 ;------------------------------------------------------------------------------
 PlayerRightRaw:
-PlayerDeniseRaw:
-    incbin     "assets/graphics/sprites/player_bobs_female_128x144.raw"
+PlayerMiaRaw:
+    incbin     "assets/graphics/player/player_bobs_female_128x144.raw"
     even
 
 PlayerRightMsk:
-PlayerDeniseMsk:
-    incbin     "assets/graphics/sprites/player_bobs_female_128x144.msk"
+PlayerMiaMsk:
+    incbin     "assets/graphics/player/player_bobs_female_128x144.msk"
     even
 
 PlayerRightWhiteRaw:
-PlayerDeniseWhiteRaw:
-    incbin     "assets/graphics/sprites/player_bobs_female_128x144_white.raw"
+PlayerMiaWhiteRaw:
+    incbin     "assets/graphics/player/player_bobs_female_128x144_white.raw"
     even
 
 
@@ -734,11 +773,13 @@ PlayerDeniseWhiteRaw:
 ;==============================================================================
 
     section    mem_fast,bss
+    even
 
 AllFast:
 
 Variables:
     ds.b       Variables_sizeof
+    even
 
 Keys:
     ds.b       256          ; one byte per scan-code (0-255); max written index is 127

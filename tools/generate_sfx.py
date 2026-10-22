@@ -1,3 +1,27 @@
+"""
+Procedural Audio & Sound Effects Generator for Amiga Game Engine
+================================================================
+
+Synthesizes high-quality, authentic retro Amiga sound effects using physical modeling,
+FM, subtractive, and wavetable synthesis techniques without external sample dependencies.
+
+Amiga Audio Hardware & Driver Specifications:
+---------------------------------------------
+1. Paula Custom Chip (MOS Technology 8364):
+   - 4 independent DMA audio channels (2 Left, 2 Right).
+   - Linear 8-bit signed PCM format (-128 to +127).
+   - Standard replay sample rate: 11,025 Hz (Paula period 322 for PAL machines:
+     Period = 3,546,895 Hz / 11,025 Hz = 322).
+2. PTPlayer Driver Compatibility (Frank Wille):
+   - Every raw sample file must begin with a 2-byte zero word (dc.w 0) as an idle loop
+     sentinel when played via _mt_playfx / _mt_loopfx.
+   - Total file length must be an even number of bytes for 68000 word alignment.
+3. Dual-Format Pipeline:
+   - Exports raw 8-bit PCM to `assets/fx/<name>.raw` for direct inclusion into Chip RAM.
+   - Exports standard 16-bit 11,025 Hz mono WAV to `scratch/sfx_preview/<name>.wav`
+     for verification on host development systems.
+"""
+
 import math
 import struct
 import os
@@ -233,57 +257,232 @@ def gen_crate_push():
         samples.append(s)
     return samples
 
-# 7. Player Death (Fatal hit impact + dramatic descending arpeggio collapse)
+# 7. Player Death - Option 1 (Default): Fatal Hit Impact, 6-Note Minor Stumble & Floor Flop
+# Timed to match Mia's 48-frame (0.96s) 4-cel death collapse animation:
+#   Cel 0 (staggered): crack, cane clatter snap, body thud, startled vocal chirp/gasp
+#   Cel 1 (knees buckle): cascading staccato descending run (B5 -> A5 -> G#5)
+#   Cel 2 (pitching forward): descending run (F#5 -> E5 -> D5/C5) with detuned Paula chorus
+#   Cel 3 (flat on floor): ground thud impact, comedic sad slide & wobble, soft dust puff
 def gen_player_die():
-    dur = 0.46 # 460ms
+    dur = 0.88 # 880ms (44 PAL frames)
     n = int(dur * SAMPLE_RATE)
     samples = []
     import random
-    random.seed(333)
-    
-    # 4 descending notes: C5 (523Hz), A4 (440Hz), F4 (349Hz), D4->D3 (293Hz -> 146Hz)
+    random.seed(42)
+
+    # Descending 6-note stumble progression (Minor / Dorian tumble):
+    # B5 (987Hz) -> A5 (880Hz) -> G#5 (830Hz) -> F#5 (740Hz) -> E5 (659Hz) -> D5->C5 (587->523Hz)
     notes = [
-        (0.00, 0.10, 523.0),
-        (0.10, 0.20, 440.0),
-        (0.20, 0.30, 349.0),
-        (0.30, 0.46, 293.0)
+        (0.12, 0.21, 987.77, 0.06), # B5
+        (0.21, 0.30, 880.00, 0.06), # A5
+        (0.30, 0.39, 830.61, 0.07), # G#5
+        (0.39, 0.49, 739.99, 0.08), # F#5
+        (0.49, 0.59, 659.25, 0.09), # E5
+        (0.59, 0.70, 587.33, 0.12), # D5 sliding towards C5
     ]
-    
-    phase = 0.0
+
+    phase_hit = 0.0
+    phase_melody1 = 0.0
+    phase_melody2 = 0.0
+    phase_sub = 0.0
+    phase_flop = 0.0
+    noise_lp = 0.0
+    noise_hp = 0.0
+
     for i in range(n):
         t = i / SAMPLE_RATE
-        
-        # Initial crunchy hit impact (first 25ms)
-        hit = 0.0
-        if t < 0.025:
-            hit_env = math.exp(-t * 120.0)
-            hit = (random.random() * 2.0 - 1.0) * 110.0 * hit_env
-            
-        # Determine active note
-        note_freq = 220.0
-        note_env = 0.0
-        for start_t, end_t, freq in notes:
-            if start_t <= t < end_t:
-                rel_t = (t - start_t) / (end_t - start_t)
-                # Note volume decay
-                note_env = math.exp(-rel_t * 4.0)
-                # Pitch bend down within each note slightly for dramatic weight
-                if start_t >= 0.30:
-                    # Final note slides down deep into the bass
-                    slide = (1.0 - rel_t * 0.5)
-                    note_freq = freq * slide
+
+        # -------------------------------------------------------------
+        # 1. Fatal Hit Impact & Shock (0.00 - 0.13s)
+        # -------------------------------------------------------------
+        hit_sig = 0.0
+        if t < 0.13:
+            # Crack / slap transient (first 30ms)
+            env_crack = math.exp(-t * 85.0)
+            raw_noise = (random.random() * 2.0 - 1.0) * 115.0
+            noise_lp += 0.32 * (raw_noise - noise_lp)
+            crack = (noise_lp * 0.7 + raw_noise * 0.3) * env_crack
+
+            # Cane clatter snap (high transient click at t=0.010s)
+            cane_snap = 0.0
+            if 0.010 <= t < 0.050:
+                t_cs = t - 0.010
+                cane_snap = math.sin(2.0 * math.pi * 1450.0 * t_cs) * math.exp(-t_cs * 160.0) * 80.0
+
+            # Visceral body thud (pitch drops 260 Hz -> 55 Hz)
+            f_thump = 55.0 + 205.0 * math.exp(-t * 32.0)
+            phase_hit += 2.0 * math.pi * f_thump / SAMPLE_RATE
+            thump = math.sin(phase_hit) * 115.0 * math.exp(-t * 26.0)
+
+            # Startled vocal chirp / gasp (t = 0.02..0.12s)
+            chirp = 0.0
+            if 0.02 <= t < 0.12:
+                tc = t - 0.02
+                env_chirp = max(0.0, math.sin((tc / 0.10) * math.pi)) ** 1.3
+                f_chirp = 620.0 + 380.0 * math.sin((tc / 0.10) * math.pi * 0.85)
+                phase_sub += 2.0 * math.pi * f_chirp / SAMPLE_RATE
+                chirp = (math.sin(phase_sub) + 0.35 * math.sin(phase_sub * 2.0)) * 75.0 * env_chirp
+
+            hit_sig = crack * 0.55 + cane_snap * 0.45 + thump * 0.70 + chirp * 0.45
+
+        # -------------------------------------------------------------
+        # 2. Descending Melodic Run (0.12 - 0.70s)
+        # -------------------------------------------------------------
+        melody_sig = 0.0
+        for st, en, freq, sag in notes:
+            if st <= t < en:
+                nt = (t - st) / (en - st)
+                # Sharp punchy attack (7ms), decaying sustain
+                if nt < 0.09:
+                    env_m = nt / 0.09
                 else:
-                    note_freq = freq * (1.0 - rel_t * 0.1)
+                    env_m = math.exp(-(nt - 0.09) * 3.8)
+                if nt > 0.85:
+                    env_m *= (1.0 - (nt - 0.85) / 0.15)
+
+                # Pitch sag within each note (dramatic weight/stumble)
+                f_cur = freq * (1.0 - nt * sag)
+
+                # Detuned Paula synth dual-voice (warm chorus sheen)
+                phase_melody1 += 2.0 * math.pi * f_cur / SAMPLE_RATE
+                phase_melody2 += 2.0 * math.pi * (f_cur * 1.006) / SAMPLE_RATE
+
+                # Rich retro pulse/saw harmonic structure
+                p1 = (phase_melody1 % (2.0 * math.pi)) / (2.0 * math.pi)
+                pulse1 = 0.95 if p1 < 0.38 else -0.95
+                sine1 = math.sin(phase_melody1)
+                harm1 = math.sin(phase_melody1 * 2.0)
+                sine2 = math.sin(phase_melody2)
+
+                voice = (sine1 * 0.45 + pulse1 * 0.28 + harm1 * 0.18 + sine2 * 0.22)
+                melody_sig = voice * env_m * 88.0
                 break
-                
-        # Warm retro tone: mix fundamental + soft 2nd harmonic (analog/chiptune warmth)
-        phase += 2.0 * math.pi * note_freq / SAMPLE_RATE
-        tone = (math.sin(phase) * 85.0 + math.sin(phase * 2.0) * 35.0) * note_env
-        
-        # Master fadeout
-        master_env = 1.0 - (i / n) ** 1.5
-        s = (hit * 0.7 + tone * 0.85) * master_env
-        samples.append(s)
+
+        # -------------------------------------------------------------
+        # 3. Floor Flop & Comedic Sad Slide Settle (0.68 - 0.88s)
+        # -------------------------------------------------------------
+        flop_sig = 0.0
+        if t >= 0.68:
+            tf = t - 0.68
+            env_f = math.exp(-tf * 13.0)
+
+            # Ground impact thud (pitch drops 110 Hz -> 45 Hz)
+            f_flop = 45.0 + 65.0 * math.exp(-tf * 22.0)
+            phase_flop += 2.0 * math.pi * f_flop / SAMPLE_RATE
+            thud = math.sin(phase_flop) * 100.0 * env_f
+
+            # Comedic sad slide down: 175 Hz -> 58 Hz with 13 Hz wobble
+            f_slide = 58.0 + 117.0 * math.exp(-tf * 9.0)
+            wobble = 14.0 * math.sin(2.0 * math.pi * 13.0 * tf) * math.exp(-tf * 5.5)
+            phase_sub += 2.0 * math.pi * (f_slide + wobble) / SAMPLE_RATE
+            slide_tone = (math.sin(phase_sub) + 0.45 * math.sin(phase_sub * 2.0) + 0.2 * math.sin(phase_sub * 3.0)) * 80.0 * math.exp(-tf * 7.5)
+
+            # Soft dust puff noise (highpassed rustle)
+            dust_raw = (random.random() * 2.0 - 1.0) * 35.0
+            noise_hp = dust_raw - 0.85 * noise_hp
+            dust_puff = noise_hp * math.exp(-tf * 22.0)
+
+            flop_sig = thud * 0.70 + slide_tone * 0.65 + dust_puff * 0.30
+
+        # Master mix with soft analog saturation
+        total = hit_sig + melody_sig + flop_sig
+        total = math.tanh(total / 92.0) * 115.0
+
+        # Master tail fadeout at very end
+        if t > 0.82:
+            fade = (0.88 - t) / 0.06
+            total *= max(0.0, fade)
+
+        samples.append(total)
+
+    return samples
+
+# Player Death - Option 2: Classic Arcade Melodic Jingle (Mario / Giana Sisters style)
+def gen_player_die_arcade_jingle():
+    dur = 0.90
+    n = int(dur * SAMPLE_RATE)
+    samples = []
+    import random
+    random.seed(123)
+
+    jingle_notes = [
+        (0.10, 0.20, 493.88, 0.0), # B4
+        (0.20, 0.34, 698.46, 0.0), # F5
+        (0.39, 0.48, 698.46, 0.0), # F5
+        (0.48, 0.57, 698.46, 0.0), # F5
+        (0.57, 0.66, 659.25, 0.0), # E5
+        (0.66, 0.75, 587.33, 0.0), # D5
+        (0.75, 0.90, 523.25, 1.0), # C5 finale with slide & sad vibrato
+    ]
+
+    phase_hit = 0.0
+    phase_melody = 0.0
+    phase_sub = 0.0
+    noise_lp = 0.0
+
+    for i in range(n):
+        t = i / SAMPLE_RATE
+
+        hit_sig = 0.0
+        if t < 0.10:
+            env_crack = math.exp(-t * 95.0)
+            noise = (random.random() * 2.0 - 1.0) * 115.0
+            noise_lp += 0.28 * (noise - noise_lp)
+            crack = (noise_lp * 0.75 + noise * 0.25) * env_crack
+            f_thump = 55.0 + 200.0 * math.exp(-t * 38.0)
+            phase_hit += 2.0 * math.pi * f_thump / SAMPLE_RATE
+            thump = math.sin(phase_hit) * 115.0 * math.exp(-t * 30.0)
+            hit_sig = crack * 0.65 + thump * 0.75
+
+        melody_sig = 0.0
+        for st, en, freq, is_tail in jingle_notes:
+            if st <= t < en:
+                nt = (t - st) / (en - st)
+                if nt < 0.08:
+                    env_m = nt / 0.08
+                else:
+                    if is_tail > 0.5:
+                        env_m = math.exp(-(nt - 0.08) * 2.2)
+                    else:
+                        env_m = math.exp(-(nt - 0.08) * 4.8)
+                if nt > 0.88 and is_tail < 0.5:
+                    env_m *= (1.0 - (nt - 0.88) / 0.12)
+
+                vib = 0.0
+                f_cur = freq
+                if is_tail > 0.5:
+                    f_cur = freq * (1.0 - nt * 0.35)
+                    if nt > 0.2:
+                        vib = 12.0 * math.sin(2.0 * math.pi * 6.5 * (t - st))
+                else:
+                    f_cur = freq * (1.0 - nt * 0.05)
+
+                phase_melody += 2.0 * math.pi * (f_cur + vib) / SAMPLE_RATE
+
+                p = (phase_melody % (2.0 * math.pi)) / (2.0 * math.pi)
+                pulse = 0.9 if p < 0.35 else -0.9
+                sine = math.sin(phase_melody)
+                harm2 = math.sin(phase_melody * 2.0)
+                harm3 = math.sin(phase_melody * 3.0)
+                tone = sine * 0.50 + pulse * 0.30 + harm2 * 0.22 + harm3 * 0.10
+                melody_sig = tone * env_m * 85.0
+                break
+
+        flop_sig = 0.0
+        if t >= 0.74:
+            tf = t - 0.74
+            env_f = math.exp(-tf * 15.0)
+            f_flop = 75.0 * math.exp(-tf * 16.0)
+            phase_sub += 2.0 * math.pi * f_flop / SAMPLE_RATE
+            flop_sig = math.sin(phase_sub) * 70.0 * env_f
+
+        total = hit_sig + melody_sig + flop_sig
+        total = math.tanh(total / 95.0) * 115.0
+        if t > 0.85:
+            fade = (0.90 - t) / 0.05
+            total *= max(0.0, fade)
+        samples.append(total)
+
     return samples
 
 # 8. Underwater Air Bubble (Crisp resonant water bubble "bloop")
@@ -481,6 +680,7 @@ export_sfx("sfx_duck_rescue", gen_duck_rescue())
 export_sfx("sfx_oxygen", gen_oxygen_refill())
 export_sfx("sfx_crate_push", gen_crate_push())
 export_sfx("sfx_player_die", gen_player_die())
+export_sfx("sfx_player_die_arcade", gen_player_die_arcade_jingle())
 export_sfx("sfx_air_bubble", gen_air_bubble())
 export_sfx("sfx_level_complete", gen_level_complete())
 export_sfx("sfx_intro_fanfare", gen_intro_fanfare())
@@ -542,26 +742,39 @@ def gen_vangelis_cs80():
     return samples
 
 # ==============================================================================
-# 12. Blade Runner Game Over: Spinner "ENVIRON CTR" Terminal Klaxon
+# 12. Blade Runner Game Over: Spinner "ENVIRON CTR" Terminal Klaxon (3-Note Cadence)
 # ==============================================================================
-def gen_spinner_klaxon():
-    dur = 2.40
+# Expands the original 2-note alert into a complete 3-note descending sequence
+# spaced at exact 24-frame (480ms at 50Hz PAL) intervals:
+#   Pulse 1 (t=0.00s, frame 0):  High Alert Ping   D5 (587.33Hz) + F#5 (739.99Hz) + 120Hz ring
+#   Pulse 2 (t=0.48s, frame 24): Mid Warning Chime  A4 (440.00Hz) + C#5 (554.37Hz) + 95Hz ring
+#   Pulse 3 (t=0.96s, frame 48): Low Shutdown Tone  D4 (293.66Hz) + F#4 (369.99Hz) + 72Hz ring
+# Followed by sustained CRT power drain and low ambient hum (55Hz -> 28Hz) until t=2.50s.
+def gen_spinner_klaxon(mode="major"):
+    dur = 2.50
     n = int(dur * SAMPLE_RATE)
     samples = []
     phase_p1_a = 0.0
     phase_p1_b = 0.0
     phase_p2_a = 0.0
     phase_p2_b = 0.0
+    phase_p3_a = 0.0
+    phase_p3_b = 0.0
     phase_hum = 0.0
     import random
     random.seed(82)
     noise_lp = 0.0
     
+    # In major mode, Pulse 3 is F#4 (369.99Hz - complete D major triad cadence)
+    # In minor mode, Pulse 3 is F4  (349.23Hz - Picardy third in reverse, tragic minor)
+    p3_f_b = 369.99 if mode == "major" else 349.23
+    
     for i in range(n):
         t = i / SAMPLE_RATE
         out = 0.0
-        # Pulse 1: Alert Ping D5 587Hz + F#5 740Hz + 120Hz ring
-        if 0.0 <= t < 0.45:
+        
+        # Pulse 1: Alert Ping D5 587Hz + F#5 740Hz + 120Hz ring (Frame 0..24, 0.00..0.48s)
+        if 0.0 <= t < 0.48:
             pt = t
             p_env = math.exp(-pt * 9.5)
             phase_p1_a += 2.0 * math.pi * 587.33 / SAMPLE_RATE
@@ -569,17 +782,28 @@ def gen_spinner_klaxon():
             ring = math.sin(2.0 * math.pi * 120.0 * pt)
             tone_a = math.sin(phase_p1_a) + 0.35 * math.sin(phase_p1_a * 3.0)
             tone_b = math.sin(phase_p1_b) + 0.30 * math.sin(phase_p1_b * 3.0)
-            out += (tone_a * 0.5 + tone_b * 0.4 + ring * 0.15) * p_env * 110.0
+            out += (tone_a * 0.50 + tone_b * 0.40 + ring * 0.15) * p_env * 110.0
             
-        # Pulse 2: Lower warning chime A4 440Hz + C#5 554Hz
-        if 0.50 <= t < 0.98:
-            pt = t - 0.50
+        # Pulse 2: Mid warning chime A4 440Hz + C#5 554Hz + 95Hz ring (Frame 24..48, 0.48..0.96s)
+        if 0.48 <= t < 0.96:
+            pt = t - 0.48
             p_env = math.exp(-pt * 8.5)
             phase_p2_a += 2.0 * math.pi * 440.00 / SAMPLE_RATE
             phase_p2_b += 2.0 * math.pi * 554.37 / SAMPLE_RATE
             ring = math.sin(2.0 * math.pi * 95.0 * pt)
             tone_a = math.sin(phase_p2_a) + 0.35 * math.sin(phase_p2_a * 3.0)
             tone_b = math.sin(phase_p2_b) + 0.30 * math.sin(phase_p2_b * 3.0)
+            out += (tone_a * 0.55 + tone_b * 0.45 + ring * 0.15) * p_env * 115.0
+
+        # Pulse 3: Low terminal power-down chime D4 293.66Hz + F#4 369.99Hz + 72Hz ring (Frame 48+, 0.96..1.70s)
+        if 0.96 <= t < 1.70:
+            pt = t - 0.96
+            p_env = math.exp(-pt * 6.5)
+            phase_p3_a += 2.0 * math.pi * 293.66 / SAMPLE_RATE
+            phase_p3_b += 2.0 * math.pi * p3_f_b / SAMPLE_RATE
+            ring = math.sin(2.0 * math.pi * 72.0 * pt)
+            tone_a = math.sin(phase_p3_a) + 0.38 * math.sin(phase_p3_a * 3.0)
+            tone_b = math.sin(phase_p3_b) + 0.32 * math.sin(phase_p3_b * 3.0)
             out += (tone_a * 0.55 + tone_b * 0.45 + ring * 0.15) * p_env * 115.0
             
         # Analog CRT power drain & low ambient hum (55Hz -> 28Hz)
@@ -594,10 +818,132 @@ def gen_spinner_klaxon():
             out += hum + noise_lp
             
         out = math.tanh(out / 100.0) * 115.0
+        if t > 2.40:
+            out *= (2.50 - t) / 0.10
         samples.append(out)
     return samples
 
-export_sfx("sfx_game_over", gen_spinner_klaxon())
+export_sfx("sfx_game_over", gen_spinner_klaxon(mode="major"))
+export_sfx("sfx_game_over_minor", gen_spinner_klaxon(mode="minor"))
+
+# ==============================================================================
+# 13. VHS Tape Rewind / Move Unwind (Deck engage, high-speed motor whirl, tape chatter, brake snap)
+# ==============================================================================
+def gen_vhs_rewind():
+    # Exactly 0.60s (30 frames at 50Hz PAL) to match VHS_EFFECT_DURATION
+    dur = 0.60
+    n = int(dur * SAMPLE_RATE)
+    samples = []
+    import random
+    random.seed(999)
+    
+    # Pre-generate noise for tape friction
+    noise_buf = [(random.random() * 2.0 - 1.0) for _ in range(n)]
+    
+    # 2-pole bandpass filter state for tape hiss around 2.4 kHz
+    fc = 2400.0 / SAMPLE_RATE
+    r = 0.82
+    b1 = -2.0 * r * math.cos(2.0 * math.pi * fc)
+    b2 = r * r
+    y1 = 0.0
+    y2 = 0.0
+    
+    phase_m = 0.0
+    phase_c1 = 0.0
+    phase_c2 = 0.0
+    
+    for i in range(n):
+        t = i / SAMPLE_RATE
+        
+        # 1. Start Mechanical Solenoid Click (t = 0.005..0.040s)
+        mech_start = 0.0
+        if 0.005 <= t < 0.040:
+            dt1 = t - 0.005
+            env1 = math.exp(-dt1 * 220.0)
+            click1 = (math.sin(2.0 * math.pi * 320.0 * dt1) * 0.6 + math.sin(2.0 * math.pi * 2600.0 * dt1) * 0.4) * env1
+            dt2 = t - 0.020
+            click2 = 0.0
+            if dt2 >= 0:
+                env2 = math.exp(-dt2 * 160.0)
+                click2 = (math.sin(2.0 * math.pi * 180.0 * dt2) * 0.7 + math.sin(2.0 * math.pi * 1700.0 * dt2) * 0.3) * env2
+            mech_start = click1 * 0.7 + click2 * 0.9
+            
+        # 2. Motor Whine Frequency & Amplitude Envelope
+        # Acceleration 0.03..0.16s, Sustain 0.16..0.48s, Deceleration 0.48..0.54s
+        if t < 0.03:
+            mfreq = 0.0
+            m_env = 0.0
+        elif t < 0.16:
+            p = (t - 0.03) / 0.13
+            mfreq = 320.0 + 1160.0 * (p ** 1.3)
+            m_env = p
+        elif t < 0.48:
+            flutter = 45.0 * math.sin(2.0 * math.pi * 14.0 * t)
+            mfreq = 1480.0 + flutter
+            m_env = 1.0 + 0.18 * math.sin(2.0 * math.pi * 14.0 * t + 0.5)
+        elif t < 0.54:
+            p = (t - 0.48) / 0.06
+            mfreq = 1480.0 * (1.0 - p ** 0.7) + 240.0 * p
+            m_env = (1.0 - p)
+        else:
+            mfreq = 0.0
+            m_env = 0.0
+            
+        # Motor harmonics
+        phase_m += 2.0 * math.pi * mfreq / SAMPLE_RATE
+        motor_tone = (
+            math.sin(phase_m) * 0.50 +
+            math.sin(phase_m * 2.0) * 0.28 +
+            math.sin(phase_m * 3.0) * 0.14 +
+            math.sin(phase_m * 4.0) * 0.08
+        ) * m_env
+        
+        # 3. High-Speed Reverse Tape Chatter (warbling scrub audio)
+        f_c1 = 1200.0 + 700.0 * math.sin(2.0 * math.pi * 26.0 * t) + 400.0 * math.cos(2.0 * math.pi * 11.0 * t)
+        f_c2 = 2100.0 + 600.0 * math.sin(2.0 * math.pi * 37.0 * t + 1.2)
+        phase_c1 += 2.0 * math.pi * f_c1 / SAMPLE_RATE
+        phase_c2 += 2.0 * math.pi * f_c2 / SAMPLE_RATE
+        tape_chatter = (math.sin(phase_c1) * 0.6 + math.sin(phase_c2) * 0.4) * m_env
+        
+        # 4. Filtered Tape Hiss / Air Whoosh
+        x0 = noise_buf[i]
+        x2 = noise_buf[i - 2] if i >= 2 else 0.0
+        y0 = 0.25 * (x0 - x2) - b1 * y1 - b2 * y2
+        y2 = y1
+        y1 = y0
+        tape_hiss = y0 * m_env * 0.55
+        
+        # 5. Stop Mechanical Brake Clunk & Solenoid Snap (t = 0.52..0.60s)
+        mech_stop = 0.0
+        if 0.520 <= t < 0.600:
+            dt_s1 = t - 0.525
+            env_s1 = math.exp(-dt_s1 * 140.0) if dt_s1 >= 0 else 0.0
+            thump = (math.sin(2.0 * math.pi * 130.0 * dt_s1) * 0.8 + math.sin(2.0 * math.pi * 2400.0 * dt_s1) * 0.2) * env_s1
+            
+            dt_s2 = t - 0.540
+            env_s2 = math.exp(-dt_s2 * 180.0) if dt_s2 >= 0 else 0.0
+            snap = (math.sin(2.0 * math.pi * 280.0 * dt_s2) * 0.4 + math.sin(2.0 * math.pi * 3200.0 * dt_s2) * 0.6) * env_s2
+            mech_stop = thump * 0.9 + snap * 0.7
+            
+        # Combine layers
+        sig = (
+            mech_start * 55.0 +
+            motor_tone * 45.0 +
+            tape_chatter * 35.0 +
+            tape_hiss * 45.0 +
+            mech_stop * 65.0
+        )
+        
+        # Fade out very end cleanly
+        if t > 0.58:
+            sig *= (0.60 - t) / 0.02
+            
+        samples.append(sig)
+        
+    return samples
+
+export_sfx("sfx_rewind", gen_vhs_rewind())
+
 
 
 

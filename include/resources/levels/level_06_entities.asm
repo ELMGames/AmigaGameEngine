@@ -83,11 +83,12 @@ Level_06_Player2Dir:      dc.w    0       ; -1=Left, +1=Right (0=Solo)
 ; Enemy Spawn Table
 ; Format: Type (w), Col (w), Row (w), SpawnX (w), SpawnY (w), PatrolMinX (w), PatrolMaxX (w), Speed (w)
 ;------------------------------------------------------------------------------
-Level_06_EnemyCount:      dc.w    3
+Level_06_EnemyCount:      dc.w    4
 Level_06_EnemyList:
-    dc.w    2, 7, 10, 112, 160, 32, 112, 1   ; Enemy 1
-    dc.w    7, 13, 15, 208, 240, 96, 240, 1   ; Enemy 2
-    dc.w    3, 14, 22, 224, 352, 176, 272, 2   ; Enemy 3
+    dc.w    5, 7, 4, 112, 64, 96, 144, 1   ; Enemy 1
+    dc.w    2, 7, 10, 112, 160, 32, 112, 1   ; Enemy 2
+    dc.w    5, 9, 15, 144, 240, 96, 240, 1   ; Enemy 3
+    dc.w    2, 15, 23, 240, 368, 128, 288, 1   ; Enemy 4
     dc.w    $ffff                       ; End of list marker
 
 ;------------------------------------------------------------------------------
@@ -176,10 +177,9 @@ Level_06_BridgeList:
 ; Oxygen Refills Table
 ; Format: Col (w), Row (w), PixelX (w), PixelY (w), TileId (w), Reserved (3 words)
 ;------------------------------------------------------------------------------
-Level_06_OxygenCount:     dc.w    2
+Level_06_OxygenCount:     dc.w    1
 Level_06_OxygenList:
     dc.w    10, 15, 160, 240, 46, 0, 0, 0   ; Oxygen Refill 1
-    dc.w    11, 23, 176, 368, 46, 0, 0, 0   ; Oxygen Refill 2
     dc.w    $ffff                       ; End of list marker
 
 ;------------------------------------------------------------------------------

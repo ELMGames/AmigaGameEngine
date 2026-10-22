@@ -222,6 +222,7 @@ InstrPage1Setup:
     lea         .str_next,a0
     bsr         CHAR_BLTString
 
+    clr.w       VBlankOverrunCount(a5)  ; clear setup overruns
     move.w      #INSTR_RUN1,GameStatus(a5)
     rts
 
@@ -367,6 +368,7 @@ InstrPage2Setup:
     lea         .str_next,a0
     bsr         CHAR_BLTString
 
+    clr.w       VBlankOverrunCount(a5)  ; clear setup overruns
     move.w      #INSTR_RUN2,GameStatus(a5)
     rts
 
@@ -513,6 +515,7 @@ InstrPage3Setup:
     lea         .str_next,a0
     bsr         CHAR_BLTString
 
+    clr.w       VBlankOverrunCount(a5)  ; clear setup overruns
     move.w      #INSTR_RUN3,GameStatus(a5)
     rts
 
@@ -655,6 +658,7 @@ InstrPage4Setup:
     lea         .str_ret,a0
     bsr         CHAR_BLTString
 
+    clr.w       VBlankOverrunCount(a5)  ; clear setup overruns
     move.w      #INSTR_RUN4,GameStatus(a5)
     rts
 

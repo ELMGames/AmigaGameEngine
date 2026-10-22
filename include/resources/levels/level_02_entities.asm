@@ -125,7 +125,7 @@ Level_02_SolidList:
     dc.w    7, 10, 3, 3   ; Solid 2 (x=112, y=48, w=64, h=16)
     dc.w    4, 5, 6, 6   ; Solid 3 (x=64, y=96, w=32, h=16)
     dc.w    7, 15, 6, 6   ; Solid 4 (x=112, y=96, w=144, h=16)
-    dc.w    17, 19, 6, 6   ; Solid 5 (x=272, y=96, w=48, h=16)
+    dc.w    17, 18, 6, 6   ; Solid 5 (x=272, y=96, w=32, h=16)
     dc.w    0, 19, 11, 11   ; Solid 6 (x=0, y=176, w=320, h=16)
     dc.w    0, 19, 12, 12   ; Solid 7 (x=0, y=192, w=320, h=16)
     dc.w    $ffff                       ; End of list marker

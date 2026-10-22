@@ -72,7 +72,11 @@ QuitFlag:             rs.w    1   ; non-zero = MainLoop exits to the OS (ESC on 
 ; 8 longword pointers, one per hardware sprite channel (SPR0..SPR7).
 ; Updated each VBlank by ShowSprite and then copied into the copper list
 ; sprite pointer entries (cpSprites) so that Agnus fetches the correct data.
-; Sprites 0/1 = left half of player, 2/3 = right half.  Sprites 4-7 unused.
+; Hardware Sprite HUD channel allocation:
+;   SPR0: Player Lives Badge          SPR1: Free (NullSprite)
+;   SPR2: Oxygen Kit Inventory Bottle SPR3: Friends Remaining Badge
+;   SPR4: Oxygen / Lung Gauge         SPR5: Free (NullSprite)
+;   SPR6: Dynamic Air Bubble          SPR7: Free (NullSprite)
 ;------------------------------------------------------------------------------
 SpritePtrs:           rs.l    8   ; 8 sprite data pointers
 SpriteYOffset:        rs.w    1   ; raster line of display top: WINDOW_Y_START (PAL) or NTSC_WINDOW_Y_START
@@ -94,7 +98,8 @@ Actors:               rs.b    Actor_Sizeof*MAX_ACTORS  ; actor pool (88 * Actor_
 ;------------------------------------------------------------------------------
 ; Timing and input
 ;------------------------------------------------------------------------------
-TickCounter:          rs.w    1   ; VBlank counter, incremented every frame (~50Hz PAL)
+TickCounter:          rs.w    1   ; logic-tick counter, +1 per game tick (50 Hz on both PAL and NTSC)
+NtscSkipPhase:        rs.w    1   ; NTSC only: VBlank phase 0..5 - every 6th VBlank gets no logic tick (60->50 Hz)
 FramePending:         rs.w    1   ; incremented by VBlankTick, consumed by MainLoop (frame gate)
 VBlankOverrunCount:   rs.w    1   ; frames where MainLoop exceeded one VBlank (debug telemetry)
 IsOCS:                rs.w    1   ; 1 = OCS chipset (Original), 0 = ECS/AGA; set by DetectOCS,
@@ -257,7 +262,7 @@ LCShimmerTick:        rs.w    1           ; countdown to next banner gradient ro
 
 ; Title screen variables (states TITLE_SETUP / TITLE_RUN)
 TitleMenuSel:         rs.w    1           ; selected menu item (0=PLAY, 1=CREDITS, 2=INSTR)
-; (SelectedPlayer removed - Denise is the sole player character)
+; (SelectedPlayer removed - Mia is the sole player character)
 TitleLevelNum:        rs.w    1           ; level number shown/selected on title screen
 MaxUnlockedLevel:     rs.w    1           ; highest 0-based level unlocked this session
 TitlePassBuf:         rs.b    8           ; 6-char user-entered password + null + 1 alignment pad

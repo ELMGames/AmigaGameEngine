@@ -93,7 +93,7 @@ Level_03_EnemyList:
 Level_03_FriendCount:     dc.w    2
 Level_03_FriendList:
     dc.w    3, 1, 6, 16, 96, 0, 0, 0   ; Friend 1: DUCKLING
-    dc.w    3, 19, 10, 304, 160, 0, 0, 0   ; Friend 2: DUCKLING
+    dc.w    3, 17, 10, 272, 160, 0, 0, 0   ; Friend 2: DUCKLING
     dc.w    $ffff                       ; End of list marker
 
 ;------------------------------------------------------------------------------

@@ -215,7 +215,7 @@ AudioPlayLevelComplete:
     movem.l     (sp)+,d0-d1/a0
     rts
 
-; Amiga Game Engine intro splash trumpet fanfare
+; Klaxon game over sound effect
 AudioPlayGameOver:
     movem.l     d0-d1/a0,-(sp)
     lea         SfxGameOver,a0
@@ -230,5 +230,10 @@ AudioPlayIntroFanfare:
     movem.l     (sp)+,d0-d1/a0
     rts
 
-
-
+; VHS tape rewind / move unwind sound effect
+AudioPlayRewind:
+    movem.l     d0-d1/a0,-(sp)
+    lea         SfxRewind,a0
+    jsr         _mt_playfx
+    movem.l     (sp)+,d0-d1/a0
+    rts

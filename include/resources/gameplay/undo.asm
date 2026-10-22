@@ -406,6 +406,9 @@ UndoMove:
     bsr         MarkAllActorsDirty
     bsr         DrawStaticActors
 
+    ; Clear overruns incurred during full-screen background redraw
+    clr.w       VBlankOverrunCount(a5)
+
 .exit
     POPALL
     rts

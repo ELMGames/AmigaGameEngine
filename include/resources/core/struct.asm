@@ -36,7 +36,7 @@
 ;                         clear the player's previous screen location
 ;   Player_NextX / Y    - destination tile for the current move or fall action
 ;   Player_BobOffset    - base frame index in PlayerRaw/Msk for this character
-;                         (0 = Cole, 48 = Price)
+;                         (0 = Mia)
 ;   Player_FrozenBobBase - base frame index for frozen pose (ladder or standing)
 ;   Player_AnimFrame    - current animation frame counter (0..7 walk, 0..3 idle)
 ;   Player_Facing       - direction the character faces:
@@ -65,7 +65,7 @@ Player_PrevY:             rs.w    1   ; screen pixel Y at start of last move (fo
 Player_PrevDrawn:         rs.w    1   ; non-zero if player was blitted last frame
 Player_NextX:             rs.w    1   ; destination tile column for current action
 Player_NextY:             rs.w    1   ; destination tile row    for current action
-Player_BobOffset:         rs.w    1   ; base BOB frame index (0=Cole, 48=Price)
+Player_BobOffset:         rs.w    1   ; base BOB frame index (0=Mia)
 Player_FrozenBobBase:     rs.w    1   ; base BOB frame index for frozen pose
 Player_SpriteOffset       = Player_BobOffset       ; alias for compatibility
 Player_FrozenSpriteBase   = Player_FrozenBobBase   ; alias for compatibility
@@ -146,7 +146,7 @@ Actor_Sizeof:             rs.w    0   ; total structure size in bytes
 ; Snapshot structure  (Snap_sizeof bytes)
 ;
 ; One snapshot captures the minimal game state needed to fully rewind one move:
-;   - Both players: tile X/Y, status, facing, and on-ladder flag
+;   - Player (Mia): tile X/Y, status, facing, and on-ladder flag
 ;   - The full GameMap (WALL_PAPER_SIZE bytes) - records dirt/push/enemy positions
 ;   - All actor slots: X, Y, Status, Type, SpriteOffset, Static
 ;     (6 words each).  (Actor_CanFall/IsPlayer never change - not saved.)
@@ -227,7 +227,7 @@ LevelDef_CamMarginBottom: rs.w    1   ; Lower deadzone margin in screen pixels (
 LevelDef_P1Col:           rs.w    1   ; Player 1 start column
 LevelDef_P1Row:           rs.w    1   ; Player 1 start row
 LevelDef_P1Facing:        rs.w    1   ; Player 1 facing (+1=Right, -1=Left)
-LevelDef_P2Col:           rs.w    1   ; Player 2 start column (0 if solo)
+LevelDef_P2Col:           rs.w    1   ; Player 2 start column (reserved for co-op; 0 for solo Mia)
 LevelDef_P2Row:           rs.w    1   ; Player 2 start row
 LevelDef_P2Facing:        rs.w    1   ; Player 2 facing
 

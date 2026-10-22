@@ -118,6 +118,7 @@ CreditsSetup:
     lea         .str_ret,a0
     bsr         CHAR_BLTString
 
+    clr.w       VBlankOverrunCount(a5)  ; clear setup overruns
     move.w      #CREDITS_RUN,GameStatus(a5)
     rts
 

@@ -2,14 +2,14 @@
 
 A high-performance Motorola 68000 assembly game engine for Commodore Amiga OCS/ECS systems (A500 / A600 / A2000), engineered for base 512 KB Chip RAM + Fast RAM configurations.
 
-Out of the box, it features a complete boot-to-gameplay pipeline: custom OS takeover with clean CLI exit, intro flash banner splash, a retro ZX Spectrum-style tape loading sequence, an interactive title screen with dynamic Copper aurora effects, a 3-track ProTracker soundtrack composed by JAM (`h3xaflight`), playable adventurer **Denise** (featuring custom animations and ponytail physics), a Blade Runner-inspired **GAME OVER** terminal sequence, a starfield victory **Game Complete** screen, and a modern **Tiled `.tmx` level editor pipeline** supporting multi-layer 16×16 tilemaps, tall scrolling levels (up to 43 rows / 688 scanlines), cookie-cut Player & Enemy Blitter Objects (BOBs), asynchronous crate physics, animal friend rescue objectives, hardware sprite HUDs, rising water flood mechanics, and frame-by-frame debug stepping.
+Out of the box, it features a complete boot-to-gameplay pipeline: custom OS takeover with clean CLI exit, intro flash banner splash, a retro ZX Spectrum-style tape loading sequence, an interactive title screen with dynamic Copper aurora effects, a 3-track ProTracker soundtrack composed by JAM (`h3xaflight`), playable adventurer **Mia** (featuring custom animations and ponytail physics), a Blade Runner-inspired **GAME OVER** terminal sequence, a starfield victory **Game Complete** screen, and a modern **Tiled `.tmx` level editor pipeline** supporting multi-layer 16×16 tilemaps, tall scrolling levels (up to 43 rows / 688 scanlines), cookie-cut Player & Enemy Blitter Objects (BOBs), asynchronous crate physics, animal friend rescue objectives, hardware sprite HUDs, rising water flood mechanics, and frame-by-frame debug stepping.
 
 ---
 
 ## Key Features
 
 * **Modern Tiled (`.tmx`) Workflow:** Author multi-layer levels in the standard Tiled map editor. The Python pipeline (`tools/export_level.py`) automatically compiles levels into planar tileset graphics, blitter masks, composite maps, 1D collision logic maps, and 68000 assembly entity tables under `include/resources/levels/`.
-* **Playable Protagonist (Denise):** Play as **Denise**, a female adventurer featuring custom animated ponytail physics and red adventurer tunic across all actions (walk, idle, ladder climbing, cane attack, flailing fall, and collapse death). Her master right-facing graphics stream directly from Chip RAM (`data_chip`). Dynamic boot-time horizontal mirroring (`PlayerInitFlippedSprites`) mirrors her right-facing master graphics into a single set of left-facing Chip RAM BSS buffers, cutting asset disk footprint in half while maintaining full 512 KB Chip RAM compatibility.
+* **Playable Protagonist (Mia):** Play as **Mia**, a female adventurer featuring custom animated ponytail physics and red adventurer tunic across all actions (walk, idle, ladder climbing, cane attack, flailing fall, and collapse death). Her master right-facing graphics stream directly from Chip RAM (`data_chip`). Dynamic boot-time horizontal mirroring (`PlayerInitFlippedSprites`) mirrors her right-facing master graphics into a single set of left-facing Chip RAM BSS buffers, cutting asset disk footprint in half while maintaining full 512 KB Chip RAM compatibility.
 * **True VBlank Blitter Pipeline:** Player BOB erase, cookie-cut drawing (`minterm $0FCA`), and multi-layer foreground stamping execute at scanlines 0..22 during vertical blanking, eliminating scanline race tearing and foreground occlusion flicker.
 * **16-Colour Player & Enemy BOBs:** Dedicated conversion tools (`tools/convert_player_bob.py`, `tools/convert_enemies.py`) generate 4-bitplane, 16-colour Blitter Objects (BOBs) with separate blitter masks and white flash/invulnerability silhouettes.
 * **Blade Runner-Inspired "GAME OVER" Sequence:** Losing all 3 lives transitions to a dedicated terminal screen styled after the iconic Blade Runner spinner terminal (`purge.png`), featuring a deep crimson backdrop (`COLOR00 = $0711`), terminal header/telemetry, white horizontal dashed lines, and centered flashing Michroma typography (`GAME` / `OVER`) with a 4-second timeout returning cleanly to the Title Menu (or skippable via fire/key).
@@ -63,7 +63,7 @@ The compiled Amiga executable lands by default at `uae/dh0/main` (and synchroniz
 | **F5** | In-Game | Toggle developer debug mode (enables F1/F2 level skip and F4 complete skip) |
 | **F1 / F2** | In-Game (Debug Mode) | Skip to previous / next level |
 | **F4** | In-Game (Debug Mode) | Jump directly to Game Complete ending screen |
-| **F3** | In-Game (Debug Mode) | Toggle raster CPU-timing bar (green = CPU load, red = VBlank overrun) |
+| **F3** | In-Game (Debug Mode) | Toggle raster CPU-timing bar (yellow = VBlank blits, green = logic, red = overrun) |
 | **Cursor Keys / Joystick** | Title Menu | Navigate menu options (Play Level, Instructions, Credits, Quit) |
 | **Return / Fire / Space** | Title Menu | Confirm selection |
 | **Fire / Return / ESC** | Game Over | Skip 4-second delay and return immediately to Title Screen |
@@ -94,7 +94,7 @@ Exact memory breakdown verified via `tools/chip_ram_report.py`:
 | **`main` (Code)** | Fast/Chip RAM | ~48.0 KB | Complete 68000 instruction stream assembled as a single translation unit |
 | **`data_fast`** | Fast RAM | ~218.5 KB | Read-only tables (sine, easing), ZX0 loading assets, intro fanfare, TMX level tilemaps |
 | **`mem_fast` (BSS)** | Fast RAM | ~54.2 KB | Game state, actor records (`a5` base), keyboard buffer, undo snapshot ring buffer, stack |
-| **`data_chip`** | Chip RAM | ~157.4 KB | Copper lists, fonts, music (`xlr8.mod`, `10kdub.mod`), SFX PCM samples, BOBs (Denise), tilesets, enemies |
+| **`data_chip`** | Chip RAM | ~157.4 KB | Copper lists, fonts, music (`xlr8.mod`, `10kdub.mod`), SFX PCM samples, BOBs (Mia), tilesets, enemies |
 | **`mem_chip` (BSS)** | Chip RAM | ~248.0 KB | `DisplayScreen`, `NonDisplayScreen`, dynamic flipped player frames (`PlayerLeft*`), null sprites |
 
 * **Total Chip RAM Usage:** **405,420 bytes (~395.9 KB)**
@@ -139,8 +139,8 @@ All game assets are processed deterministically via scripts in [`tools/`](tools/
      - 68000 assembly definitions (`include/resources/levels/level_XX_entities.asm`) specifying player spawns, ladders, patrol paths, push blocks, oxygen pickups, and animal friends.
 
 2. **Player BOB Pipeline (`convert_player_bob.py`)**:
-   - Generates 16-colour, 4-bitplane raw graphic sheets, blitter masks (`.msk`), and pure-white silhouettes (`_white.raw`) for **Denise** (`player_bobs_female_128x144.*`) (9,216 bytes).
-   - Denise's sprite sheet features an animated ponytail across all 6 action rows (idle, walk, attack, death, ladder, falling) and custom red adventurer tunic.
+   - Generates 16-colour, 4-bitplane raw graphic sheets, blitter masks (`.msk`), and pure-white silhouettes (`_white.raw`) for **Mia** (`player_bobs_female_128x144.*`) (9,216 bytes).
+   - Mia's sprite sheet features an animated ponytail across all 6 action rows (idle, walk, attack, death, ladder, falling) and custom red adventurer tunic.
    - At boot, `PlayerInitFlippedSprites` dynamically flips right-facing master graphics into a single set of left-facing Chip RAM BSS buffers (`PlayerLeftRaw`, `PlayerLeftMsk`, `PlayerLeftWhiteRaw`), cutting disk footprint in half and conserving precious Chip RAM.
    - Pass `--preview` to export a visual contact sheet (`player_female_preview.png`) for inspection.
 
@@ -171,8 +171,8 @@ All game assets are processed deterministically via scripts in [`tools/`](tools/
 │   │   ├── animals/                # Animal friend raw/msk files
 │   │   ├── copper/                 # Precalculated copper sky binary
 │   │   ├── enemies/                # Enemy sprite sheets, dizzy stars raw/msk
-│   │   ├── headshots/              # Denise portrait graphics and palettes
-│   │   ├── sprites/                # Denise BOB raw/msk/white files, PNG master source
+│   │   ├── headshots/              # Mia portrait graphics and palettes
+│   │   ├── sprites/                # Mia BOB raw/msk/white files, PNG master source
 │   │   ├── tiles/                  # 16x16 raw compact tileset and blitter mask
 │   │   └── title/                  # Title screen logo, duck banner, and palette files
 │   ├── levels/                     # Tiled .tmx levels (Level_01/ through Level_06/, Test/)
@@ -196,6 +196,6 @@ All game assets are processed deterministically via scripts in [`tools/`](tools/
 
 * **True VBlank Execution:** Player erase/draw operations run in early VBlank (scanlines 0..22), eliminating beam race tearing.
 * **CPU Fault Trap (Red Screen):** If a bus error, address error, illegal instruction, or invalid state occurs, the engine intercepts the exception vector and displays a full-screen red diagnostic canvas.
-* **Frame Budget Raster Meter:** Press **F5** then **F3** in-game to display the real-time raster bar (green = healthy frame budget headroom). If CPU processing exceeds the vertical blank budget, the meter shifts red, indicating dropped frames.
+* **Frame Budget Raster Meter:** Press **F5** then **F3** in-game to display the real-time raster bar. Yellow marks upfront VBlank priority blits (must finish before scanline 44 to avoid beam-racing), green indicates active CPU/blitter logic headroom, and red alerts to vertical blank frame overruns.
 * **On-Screen Diagnostic Overlay:** Press **D** or **S** to view live camera coordinates, player X/Y tile and sub-tile positions, action state, direction, active enemy count, waterline row, and current loop speed mode (`RUN` or `SLOW`).
 * **Frame Step Debugger:** Press **S** to halt execution and inspect animations, collision logic, crate movement, and enemy patrol behaviors frame-by-frame with the **A** key.

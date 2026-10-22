@@ -12,7 +12,7 @@
 ;   ControlsTrigger - bit set ONLY on the first frame a key is pressed (edge)
 ;
 ; Control byte bit layout (same for both Hold and Trigger):
-;   bit 4 = FIRE  (Space bar)   - switch active player
+;   bit 4 = FIRE  (Space / Joy Fire) - cane attack swing / hold for undo rewind
 ;   bit 3 = RIGHT (cursor right)
 ;   bit 2 = LEFT  (cursor left)
 ;   bit 1 = DOWN  (cursor down)
@@ -23,7 +23,7 @@
 ;   $4d = cursor DOWN
 ;   $4f = cursor LEFT
 ;   $4e = cursor RIGHT
-;   $40 = Space bar (FIRE / switch player)
+;   $40 = Space bar (FIRE / cane attack)
 ;
 ;==============================================================================
 

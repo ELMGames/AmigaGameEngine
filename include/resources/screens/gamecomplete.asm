@@ -1,18 +1,18 @@
 
 ;==============================================================================
 ; AMIGA GAME ENGINE
-; gamecomplete.asm  -  Game Complete Screen (states 15 / 16)
+; gamecomplete.asm  -  Game Complete Screen (states 19 / 20)
 ;==============================================================================
 ;
-; Displayed when the player completes level 100 (LevelId = 99).
+; Displayed when the player completes the campaign (all 6 levels cleared, LevelId = 5).
 ; LevelCompleteSetup redirects to GameCompleteSetup before its normal flow.
 ;
 ; Screen layout (336x200 pixels, 5-plane interleaved, same geometry as cpTitle):
 ;
 ;   Y=5, bX=12   "YOU HAVE COMPLETED" (18 chars, green)
-;   Y= 40..95      title logo (TitleLogoRaw, 256x56, 3 bitplanes) blitted
-;                  into screen planes 1-3; colours patched from TitleLogoPal
-;                  (plane 0 stays free for the starfield)
+;   Y= 40..95      victory duckling (GCDucklingRaw, 64x96, 4 bitplanes) blitted
+;                  into screen planes 1-4 with bobbing animation;
+;                  colours patched from TitleDuckPal (plane 0 for starfield)
 ;   Y=150, bX=13   "CONGRATULATIONS!" (16 chars, green)
 ;   Y=190, bX=12   "THANKS FOR PLAYING" (18 chars, pink/red)
 ;
@@ -46,8 +46,8 @@
 ; Exits on FIRE / joystick button or Return -> TITLE_SETUP.
 ;
 ; Entry points:
-;   GameCompleteSetup  -- one-shot init (GameStatus = GAME_COMPLETE_SETUP = 15)
-;   GameCompleteRun    -- per-frame handler (GameStatus = GAME_COMPLETE_RUN = 16)
+;   GameCompleteSetup  -- one-shot init (GameStatus = GAME_COMPLETE_SETUP = 19)
+;   GameCompleteRun    -- per-frame handler (GameStatus = GAME_COMPLETE_RUN = 20)
 ;
 ; Register convention: a5 = Variables base, a6 = $dff000 (CUSTOM).
 ;==============================================================================
@@ -90,12 +90,12 @@ GC_DUCK_DEST_X_OFF  = LOADING_WIDTH_BYTE+GC_DUCK_X/8 ; 56
 
 
 ;==============================================================================
-; GameCompleteSetup  -  One-shot init for the game complete screen (state 15)
+; GameCompleteSetup  -  One-shot init for the game complete screen (state 19)
 ;
 ; Sequence:
 ;   1. Stop music; clear DisplayScreen.
 ;   2. Patch cpGCPlanes + cpGCSprites; install cpGameComplete copper list.
-;   3. Patch logo colours into cpGCPal; blit TitleLogoRaw into planes 1-3.
+;   3. Patch duckling palette into cpGCPal; blit GCDucklingRaw into planes 1-4.
 ;   4. Draw static text.
 ;   5. Seed LFSR; initialise GC_NUM_STARS stars with uniform random X (0..335)
 ;      and Y (0..GC_STAR_MAX_Y) from the Galois LFSR (each re-rolled into range).
@@ -514,6 +514,7 @@ GameCompleteRun:
     WAITBLIT                        ; ensure duckling is 100% drawn before anything else
 
 .duck_no_move:
+    bsr         SetRasterLogicColor ; VBlank duck blit complete -> switch from Yellow to Green/Red
 
     ;--------------------------------------------------------------------------
     ; 2. Starfield Updates (Plane 0)

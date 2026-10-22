@@ -55,6 +55,7 @@ DrawMap:
 
     ; Rainbow Tilemap level initialization and rendering
     bsr           TilemapInit            ; set camera, palette, clear NonDisplayScreen, blit viewport
+    clr.w         VBlankOverrunCount(a5) ; clear multi-frame TilemapInit blitting overruns
 
     rts
 
@@ -851,217 +852,69 @@ TilemapSubmergeActor:
     cmp.w       d2,d3                   ; compare bottom Y with WaterPixelY
     blt         .exit                   ; if bottom < WaterPixelY, completely dry!
 
+    ; Determine span width: 1, 2, or 3 words based on actor type/height and X
+    moveq       #1,d6                   ; default: 1 word
+    cmp.w       #PLAYER_HEIGHT,d7
+    beq.s       .is_player
+    ; 16px Actor:
+    andi.w      #15,d0
+    beq.s       .width_determined
+    moveq       #2,d6                   ; shifted 16px actor = 2 words
+    bra.s       .width_determined
+
+.is_player:
+    moveq       #2,d6                   ; player default = 2 words (aligned or right edge)
+    cmp.w       #288,d0
+    bge.s       .width_determined
+    andi.w      #15,d0
+    beq.s       .width_determined
+    moveq       #3,d6                   ; shifted player = 3 words
+
+.width_determined:
     WAITBLIT                            ; ensure blitter has finished drawing actor BOB
 
-    ; Check actor type and shift width:
-    cmp.w       #PLAYER_HEIGHT,d7
-    beq.s       .player_submerge
+    ; Fast-skip dry scanlines at the top of the actor (if d1 < d2)
+    move.w      d2,d3
+    sub.w       d1,d3                   ; d3 = dry scanline count (WaterPixelY - topY)
+    ble.s       .no_dry_skip
+    sub.w       d3,d7                   ; subtract dry lines from height
+    ble         .exit
+    move.w      d2,d1                   ; d1 = WaterPixelY (now first submerged scanline)
+    mulu.w      #TILEMAP_LINE_STRIDE,d3
+    adda.l      d3,a0                   ; a0 -> first submerged scanline
+.no_dry_skip:
 
-    ; Enemy / 16px Actor:
-    andi.w      #15,d0
-    bne         .submerge_2words
-    bra.s       .submerge_1word
-
-.player_submerge:
-    ; Player / 24px BOB:
-    cmp.w       #288,d0
-    bge         .submerge_2words
-    andi.w      #15,d0
-    bne         .submerge_3words
-    bra         .submerge_2words
-
-.submerge_1word:
-    ; -------------------------------------------------------------------------
-    ; 1-Word Aligned Submersion (16px span)
-    ; -------------------------------------------------------------------------
-    subq.w      #1,d7                   ; for dbra
-.loop_1w:
-    cmp.w       d2,d1                   ; scanline Y >= WaterPixelY?
-    blt         .next_line_1w           ; if not, dry scanline!
-
-    ; Calculate line offset from water top: d6 = d1 - d2
-    move.w      d1,d6
-    sub.w       d2,d6                   ; d6 = 0, 1, 2, 3, 4, ...
-    cmp.w       #4,d6
-    bge.s       .solid_blue_1w          ; d6 >= 4 -> solid blue water body
-
-    ; Wave crest profile (d6 = 0..3):
-    btst        #0,d1
-    bne.s       .odd_table_1w
-    lea         WaterWaveTable_Even(pc),a1
-    bra.s       .table_ready_1w
-.odd_table_1w:
-    lea         WaterWaveTable_Odd(pc),a1
-.table_ready_1w:
-    ; Table entry offset = d6 * 10
-    lsl.w       #1,d6                   ; d6 * 2
-    move.w      d6,d3
-    lsl.w       #2,d6                   ; d6 * 8
-    add.w       d3,d6                   ; d6 * 10
-    adda.w      d6,a1
-
-    move.w      (a1)+,d3                ; d3 = not_m
-    move.w      (a1)+,d4                ; d4 = p0_or
-    move.w      (a1)+,d5                ; d5 = p1_or
-    move.w      (a1)+,d6                ; d6 = p2_or
-
-    ; Plane 0:
-    and.w       d3,(a0)
-    or.w        d4,(a0)
-    ; Plane 1:
-    and.w       d3,40(a0)
-    or.w        d5,40(a0)
-    ; Plane 2:
-    and.w       d3,80(a0)
-    or.w        d6,80(a0)
-    ; Plane 3:
-    move.w      (a1),d4                 ; d4 = p3_or
-    and.w       d3,120(a0)
-    or.w        d4,120(a0)
-    bra.s       .next_line_1w
-
-.solid_blue_1w:
-    btst        #0,d1
-    bne.s       .odd_solid_1w
-    ; EVEN scanline: Plane 0 OR $AAAA, Planes 1..3 AND $5555
-    or.w        #$aaaa,(a0)
-    and.w       #$5555,40(a0)
-    and.w       #$5555,80(a0)
-    and.w       #$5555,120(a0)
-    bra.s       .next_line_1w
-
-.odd_solid_1w:
-    ; ODD scanline: Plane 0 OR $5555, Planes 1..3 AND $AAAA
-    or.w        #$5555,(a0)
-    and.w       #$aaaa,40(a0)
-    and.w       #$aaaa,80(a0)
-    and.w       #$aaaa,120(a0)
-
-.next_line_1w:
-    addq.w      #1,d1                   ; next scanline Y
-    lea         TILEMAP_LINE_STRIDE(a0),a0 ; next scanline in DisplayScreen (+160)
-    dbra        d7,.loop_1w
-    bra         .exit
-
-    ; -------------------------------------------------------------------------
-    ; 2-Word Shifted Submersion (32px span)
-    ; -------------------------------------------------------------------------
-.submerge_2words:
-    subq.w      #1,d7                   ; for dbra
-.loop_2w:
-    cmp.w       d2,d1                   ; scanline Y >= WaterPixelY?
-    blt         .next_line_2w
-
-    move.w      d1,d6
-    sub.w       d2,d6                   ; d6 = 0, 1, 2, 3, 4, ...
-    cmp.w       #4,d6
-    bge.s       .solid_blue_2w
-
-    ; Wave crest profile (d6 = 0..3):
-    btst        #0,d1
-    bne.s       .odd_table_2w
-    lea         WaterWaveTable_Even(pc),a1
-    bra.s       .table_ready_2w
-.odd_table_2w:
-    lea         WaterWaveTable_Odd(pc),a1
-.table_ready_2w:
-    lsl.w       #1,d6                   ; d6 * 2
-    move.w      d6,d3
-    lsl.w       #2,d6                   ; d6 * 8
-    add.w       d3,d6                   ; d6 * 10
-    adda.w      d6,a1
-
-    move.w      (a1)+,d3                ; d3 = not_m
-    move.w      (a1)+,d4                ; d4 = p0_or
-    move.w      (a1)+,d5                ; d5 = p1_or
-    move.w      (a1)+,d6                ; d6 = p2_or
-
-    ; Plane 0:
-    and.w       d3,(a0)
-    or.w        d4,(a0)
-    and.w       d3,2(a0)
-    or.w        d4,2(a0)
-    ; Plane 1:
-    and.w       d3,40(a0)
-    or.w        d5,40(a0)
-    and.w       d3,42(a0)
-    or.w        d5,42(a0)
-    ; Plane 2:
-    and.w       d3,80(a0)
-    or.w        d6,80(a0)
-    and.w       d3,82(a0)
-    or.w        d6,82(a0)
-    ; Plane 3:
-    move.w      (a1),d4                 ; d4 = p3_or
-    and.w       d3,120(a0)
-    or.w        d4,120(a0)
-    and.w       d3,122(a0)
-    or.w        d4,122(a0)
-    bra.s       .next_line_2w
-
-.solid_blue_2w:
-    btst        #0,d1
-    bne.s       .odd_solid_2w
-    ; EVEN scanline
-    or.w        #$aaaa,(a0)
-    or.w        #$aaaa,2(a0)
-    and.w       #$5555,40(a0)
-    and.w       #$5555,42(a0)
-    and.w       #$5555,80(a0)
-    and.w       #$5555,82(a0)
-    and.w       #$5555,120(a0)
-    and.w       #$5555,122(a0)
-    bra.s       .next_line_2w
-
-.odd_solid_2w:
-    ; ODD scanline
-    or.w        #$5555,(a0)
-    or.w        #$5555,2(a0)
-    and.w       #$aaaa,40(a0)
-    and.w       #$aaaa,42(a0)
-    and.w       #$aaaa,80(a0)
-    and.w       #$aaaa,82(a0)
-    and.w       #$aaaa,120(a0)
-    and.w       #$aaaa,122(a0)
-
-.next_line_2w:
-    addq.w      #1,d1
-    lea         TILEMAP_LINE_STRIDE(a0),a0
-    dbra        d7,.loop_2w
-    bra         .exit
+    ; Dispatch based on width: d6 = 1, 2, or 3
+    subq.w      #1,d6
+    beq         .submerge_1word
+    subq.w      #1,d6
+    beq         .submerge_2words
 
     ; -------------------------------------------------------------------------
     ; 3-Word Shifted Submersion (48px span for 24px Player BOB)
     ; -------------------------------------------------------------------------
 .submerge_3words:
-    subq.w      #1,d7                   ; for dbra
-.loop_3w:
-    cmp.w       d2,d1                   ; scanline Y >= WaterPixelY?
-    blt         .next_line_3w
-
     move.w      d1,d6
-    sub.w       d2,d6                   ; d6 = 0, 1, 2, 3, 4, ...
+    sub.w       d2,d6                   ; d6 = offset from WaterPixelY
     cmp.w       #4,d6
-    bge         .solid_blue_3w
+    bge         .solid_blue_3w          ; d6 >= 4 -> already below wave crest, solid blue!
 
-    ; Wave crest profile (d6 = 0..3):
+.crest_loop_3w:
     btst        #0,d1
-    bne.s       .odd_table_3w
+    bne.s       .crest_odd_3w
     lea         WaterWaveTable_Even(pc),a1
-    bra.s       .table_ready_3w
-.odd_table_3w:
+    bra.s       .crest_table_ok_3w
+.crest_odd_3w:
     lea         WaterWaveTable_Odd(pc),a1
-.table_ready_3w:
-    lsl.w       #1,d6                   ; d6 * 2
+.crest_table_ok_3w:
     move.w      d6,d3
-    lsl.w       #2,d6                   ; d6 * 8
-    add.w       d3,d6                   ; d6 * 10
-    adda.w      d6,a1
+    mulu.w      #10,d3
+    adda.w      d3,a1
 
-    move.w      (a1)+,d3                ; d3 = not_m
-    move.w      (a1)+,d4                ; d4 = p0_or
-    move.w      (a1)+,d5                ; d5 = p1_or
-    move.w      (a1)+,d6                ; d6 = p2_or
+    move.w      (a1)+,d3                ; not_m
+    move.w      (a1)+,d4                ; p0_or
+    move.w      (a1)+,d5                ; p1_or
+    move.w      (a1)+,d0                ; p2_or
 
     ; Plane 0:
     and.w       d3,(a0)
@@ -1070,6 +923,7 @@ TilemapSubmergeActor:
     or.w        d4,2(a0)
     and.w       d3,4(a0)
     or.w        d4,4(a0)
+
     ; Plane 1:
     and.w       d3,40(a0)
     or.w        d5,40(a0)
@@ -1077,60 +931,463 @@ TilemapSubmergeActor:
     or.w        d5,42(a0)
     and.w       d3,44(a0)
     or.w        d5,44(a0)
+
     ; Plane 2:
     and.w       d3,80(a0)
-    or.w        d6,80(a0)
+    or.w        d0,80(a0)
     and.w       d3,82(a0)
-    or.w        d6,82(a0)
+    or.w        d0,82(a0)
     and.w       d3,84(a0)
-    or.w        d6,84(a0)
+    or.w        d0,84(a0)
+
     ; Plane 3:
-    move.w      (a1),d4                 ; d4 = p3_or
+    move.w      (a1),d0                 ; p3_or
     and.w       d3,120(a0)
-    or.w        d4,120(a0)
+    or.w        d0,120(a0)
     and.w       d3,122(a0)
-    or.w        d4,122(a0)
+    or.w        d0,122(a0)
     and.w       d3,124(a0)
-    or.w        d4,124(a0)
-    bra         .next_line_3w
+    or.w        d0,124(a0)
+
+    addq.w      #1,d1                   ; next scanline Y
+    addq.w      #1,d6                   ; next crest line index
+    lea         TILEMAP_LINE_STRIDE(a0),a0 ; next scanline in DisplayScreen (+160)
+    subq.w      #1,d7
+    beq         .exit                   ; all requested lines done!
+    cmp.w       #4,d6
+    blt         .crest_loop_3w
 
 .solid_blue_3w:
+    tst.w       d7
+    ble         .exit
+
+    move.l      #$aaaaaaaa,d4
+    move.l      #$55555555,d5
+
     btst        #0,d1
-    bne.s       .odd_solid_3w
-    ; EVEN scanline
-    or.w        #$aaaa,(a0)
-    or.w        #$aaaa,2(a0)
-    or.w        #$aaaa,4(a0)
-    and.w       #$5555,40(a0)
-    and.w       #$5555,42(a0)
-    and.w       #$5555,44(a0)
-    and.w       #$5555,80(a0)
-    and.w       #$5555,82(a0)
-    and.w       #$5555,84(a0)
-    and.w       #$5555,120(a0)
-    and.w       #$5555,122(a0)
-    and.w       #$5555,124(a0)
-    bra.s       .next_line_3w
+    beq.s       .pair_loop_3w
 
-.odd_solid_3w:
-    ; ODD scanline
-    or.w        #$5555,(a0)
-    or.w        #$5555,2(a0)
-    or.w        #$5555,4(a0)
-    and.w       #$aaaa,40(a0)
-    and.w       #$aaaa,42(a0)
-    and.w       #$aaaa,44(a0)
-    and.w       #$aaaa,80(a0)
-    and.w       #$aaaa,82(a0)
-    and.w       #$aaaa,84(a0)
-    and.w       #$aaaa,120(a0)
-    and.w       #$aaaa,122(a0)
-    and.w       #$aaaa,124(a0)
+    ; Odd starting scanline:
+    move.l      (a0),d3
+    or.l        d5,d3
+    move.l      d3,(a0)
+    move.w      4(a0),d3
+    or.w        d5,d3
+    move.w      d3,4(a0)
 
-.next_line_3w:
-    addq.w      #1,d1
+    move.l      40(a0),d3
+    and.l       d4,d3
+    move.l      d3,40(a0)
+    move.w      44(a0),d3
+    and.w       d4,d3
+    move.w      d3,44(a0)
+
+    move.l      80(a0),d3
+    and.l       d4,d3
+    move.l      d3,80(a0)
+    move.w      84(a0),d3
+    and.w       d4,d3
+    move.w      d3,84(a0)
+
+    move.l      120(a0),d3
+    and.l       d4,d3
+    move.l      d3,120(a0)
+    move.w      124(a0),d3
+    and.w       d4,d3
+    move.w      d3,124(a0)
+
     lea         TILEMAP_LINE_STRIDE(a0),a0
-    dbra        d7,.loop_3w
+    subq.w      #1,d7
+    beq         .exit
+
+.pair_loop_3w:
+    cmp.w       #2,d7
+    blt         .single_even_3w
+
+    ; Line 0 (EVEN) at a0:
+    move.l      (a0),d3
+    or.l        d4,d3
+    move.l      d3,(a0)
+    move.w      4(a0),d3
+    or.w        d4,d3
+    move.w      d3,4(a0)
+
+    move.l      40(a0),d3
+    and.l       d5,d3
+    move.l      d3,40(a0)
+    move.w      44(a0),d3
+    and.w       d5,d3
+    move.w      d3,44(a0)
+
+    move.l      80(a0),d3
+    and.l       d5,d3
+    move.l      d3,80(a0)
+    move.w      84(a0),d3
+    and.w       d5,d3
+    move.w      d3,84(a0)
+
+    move.l      120(a0),d3
+    and.l       d5,d3
+    move.l      d3,120(a0)
+    move.w      124(a0),d3
+    and.w       d5,d3
+    move.w      d3,124(a0)
+
+    ; Line 1 (ODD) at +160(a0):
+    move.l      160(a0),d3
+    or.l        d5,d3
+    move.l      d3,160(a0)
+    move.w      164(a0),d3
+    or.w        d5,d3
+    move.w      d3,164(a0)
+
+    move.l      200(a0),d3
+    and.l       d4,d3
+    move.l      d3,200(a0)
+    move.w      204(a0),d3
+    and.w       d4,d3
+    move.w      d3,204(a0)
+
+    move.l      240(a0),d3
+    and.l       d4,d3
+    move.l      d3,240(a0)
+    move.w      244(a0),d3
+    and.w       d4,d3
+    move.w      d3,244(a0)
+
+    move.l      280(a0),d3
+    and.l       d4,d3
+    move.l      d3,280(a0)
+    move.w      284(a0),d3
+    and.w       d4,d3
+    move.w      d3,284(a0)
+
+    lea         320(a0),a0              ; advance 2 scanlines
+    subq.w      #2,d7
+    bgt         .pair_loop_3w
+    bra         .exit
+
+.single_even_3w:
+    tst.w       d7
+    ble         .exit
+    move.l      (a0),d3
+    or.l        d4,d3
+    move.l      d3,(a0)
+    move.w      4(a0),d3
+    or.w        d4,d3
+    move.w      d3,4(a0)
+
+    move.l      40(a0),d3
+    and.l       d5,d3
+    move.l      d3,40(a0)
+    move.w      44(a0),d3
+    and.w       d5,d3
+    move.w      d3,44(a0)
+
+    move.l      80(a0),d3
+    and.l       d5,d3
+    move.l      d3,80(a0)
+    move.w      84(a0),d3
+    and.w       d5,d3
+    move.w      d3,84(a0)
+
+    move.l      120(a0),d3
+    and.l       d5,d3
+    move.l      d3,120(a0)
+    move.w      124(a0),d3
+    and.w       d5,d3
+    move.w      d3,124(a0)
+    bra         .exit
+
+    ; -------------------------------------------------------------------------
+    ; 2-Word Shifted Submersion (32px span)
+    ; -------------------------------------------------------------------------
+.submerge_2words:
+    move.w      d1,d6
+    sub.w       d2,d6                   ; d6 = offset from WaterPixelY
+    cmp.w       #4,d6
+    bge         .solid_blue_2w
+
+.crest_loop_2w:
+    btst        #0,d1
+    bne.s       .crest_odd_2w
+    lea         WaterWaveTable_Even(pc),a1
+    bra.s       .crest_table_ok_2w
+.crest_odd_2w:
+    lea         WaterWaveTable_Odd(pc),a1
+.crest_table_ok_2w:
+    move.w      d6,d3
+    mulu.w      #10,d3
+    adda.w      d3,a1
+
+    move.w      (a1)+,d3                ; not_m
+    move.w      (a1)+,d4                ; p0_or
+    move.w      (a1)+,d5                ; p1_or
+    move.w      (a1)+,d0                ; p2_or
+
+    ; Plane 0:
+    and.w       d3,(a0)
+    or.w        d4,(a0)
+    and.w       d3,2(a0)
+    or.w        d4,2(a0)
+
+    ; Plane 1:
+    and.w       d3,40(a0)
+    or.w        d5,40(a0)
+    and.w       d3,42(a0)
+    or.w        d5,42(a0)
+
+    ; Plane 2:
+    and.w       d3,80(a0)
+    or.w        d0,80(a0)
+    and.w       d3,82(a0)
+    or.w        d0,82(a0)
+
+    ; Plane 3:
+    move.w      (a1),d0                 ; p3_or
+    and.w       d3,120(a0)
+    or.w        d0,120(a0)
+    and.w       d3,122(a0)
+    or.w        d0,122(a0)
+
+    addq.w      #1,d1
+    addq.w      #1,d6
+    lea         TILEMAP_LINE_STRIDE(a0),a0
+    subq.w      #1,d7
+    beq         .exit
+    cmp.w       #4,d6
+    blt         .crest_loop_2w
+
+.solid_blue_2w:
+    tst.w       d7
+    ble         .exit
+
+    move.l      #$aaaaaaaa,d4
+    move.l      #$55555555,d5
+
+    btst        #0,d1
+    beq.s       .pair_loop_2w
+
+    ; Odd starting scanline:
+    move.l      (a0),d3
+    or.l        d5,d3
+    move.l      d3,(a0)
+
+    move.l      40(a0),d3
+    and.l       d4,d3
+    move.l      d3,40(a0)
+
+    move.l      80(a0),d3
+    and.l       d4,d3
+    move.l      d3,80(a0)
+
+    move.l      120(a0),d3
+    and.l       d4,d3
+    move.l      d3,120(a0)
+
+    lea         TILEMAP_LINE_STRIDE(a0),a0
+    subq.w      #1,d7
+    beq         .exit
+
+.pair_loop_2w:
+    cmp.w       #2,d7
+    blt         .single_even_2w
+
+    ; Line 0 (EVEN) at a0:
+    move.l      (a0),d3
+    or.l        d4,d3
+    move.l      d3,(a0)
+
+    move.l      40(a0),d3
+    and.l       d5,d3
+    move.l      d3,40(a0)
+
+    move.l      80(a0),d3
+    and.l       d5,d3
+    move.l      d3,80(a0)
+
+    move.l      120(a0),d3
+    and.l       d5,d3
+    move.l      d3,120(a0)
+
+    ; Line 1 (ODD) at +160(a0):
+    move.l      160(a0),d3
+    or.l        d5,d3
+    move.l      d3,160(a0)
+
+    move.l      200(a0),d3
+    and.l       d4,d3
+    move.l      d3,200(a0)
+
+    move.l      240(a0),d3
+    and.l       d4,d3
+    move.l      d3,240(a0)
+
+    move.l      280(a0),d3
+    and.l       d4,d3
+    move.l      d3,280(a0)
+
+    lea         320(a0),a0
+    subq.w      #2,d7
+    bgt         .pair_loop_2w
+    bra         .exit
+
+.single_even_2w:
+    tst.w       d7
+    ble         .exit
+    move.l      (a0),d3
+    or.l        d4,d3
+    move.l      d3,(a0)
+
+    move.l      40(a0),d3
+    and.l       d5,d3
+    move.l      d3,40(a0)
+
+    move.l      80(a0),d3
+    and.l       d5,d3
+    move.l      d3,80(a0)
+
+    move.l      120(a0),d3
+    and.l       d5,d3
+    move.l      d3,120(a0)
+    bra         .exit
+
+    ; -------------------------------------------------------------------------
+    ; 1-Word Aligned Submersion (16px span)
+    ; -------------------------------------------------------------------------
+.submerge_1word:
+    move.w      d1,d6
+    sub.w       d2,d6                   ; d6 = offset from WaterPixelY
+    cmp.w       #4,d6
+    bge         .solid_blue_1w
+
+.crest_loop_1w:
+    btst        #0,d1
+    bne.s       .crest_odd_1w
+    lea         WaterWaveTable_Even(pc),a1
+    bra.s       .crest_table_ok_1w
+.crest_odd_1w:
+    lea         WaterWaveTable_Odd(pc),a1
+.crest_table_ok_1w:
+    move.w      d6,d3
+    mulu.w      #10,d3
+    adda.w      d3,a1
+
+    move.w      (a1)+,d3                ; not_m
+    move.w      (a1)+,d4                ; p0_or
+    move.w      (a1)+,d5                ; p1_or
+    move.w      (a1)+,d0                ; p2_or
+
+    and.w       d3,(a0)
+    or.w        d4,(a0)
+    and.w       d3,40(a0)
+    or.w        d5,40(a0)
+    and.w       d3,80(a0)
+    or.w        d0,80(a0)
+    move.w      (a1),d0
+    and.w       d3,120(a0)
+    or.w        d0,120(a0)
+
+    addq.w      #1,d1
+    addq.w      #1,d6
+    lea         TILEMAP_LINE_STRIDE(a0),a0
+    subq.w      #1,d7
+    beq         .exit
+    cmp.w       #4,d6
+    blt         .crest_loop_1w
+
+.solid_blue_1w:
+    tst.w       d7
+    ble         .exit
+
+    move.w      #$aaaa,d4
+    move.w      #$5555,d5
+
+    btst        #0,d1
+    beq.s       .pair_loop_1w
+
+    ; Odd starting scanline:
+    move.w      (a0),d3
+    or.w        d5,d3
+    move.w      d3,(a0)
+
+    move.w      40(a0),d3
+    and.w       d4,d3
+    move.w      d3,40(a0)
+
+    move.w      80(a0),d3
+    and.w       d4,d3
+    move.w      d3,80(a0)
+
+    move.w      120(a0),d3
+    and.w       d4,d3
+    move.w      d3,120(a0)
+
+    lea         TILEMAP_LINE_STRIDE(a0),a0
+    subq.w      #1,d7
+    beq         .exit
+
+.pair_loop_1w:
+    cmp.w       #2,d7
+    blt         .single_even_1w
+
+    ; Line 0 (EVEN) at a0:
+    move.w      (a0),d3
+    or.w        d4,d3
+    move.w      d3,(a0)
+
+    move.w      40(a0),d3
+    and.w       d5,d3
+    move.w      d3,40(a0)
+
+    move.w      80(a0),d3
+    and.w       d5,d3
+    move.w      d3,80(a0)
+
+    move.w      120(a0),d3
+    and.w       d5,d3
+    move.w      d3,120(a0)
+
+    ; Line 1 (ODD) at +160(a0):
+    move.w      160(a0),d3
+    or.w        d5,d3
+    move.w      d3,160(a0)
+
+    move.w      200(a0),d3
+    and.w       d4,d3
+    move.w      d3,200(a0)
+
+    move.w      240(a0),d3
+    and.w       d4,d3
+    move.w      d3,240(a0)
+
+    move.w      280(a0),d3
+    and.w       d4,d3
+    move.w      d3,280(a0)
+
+    lea         320(a0),a0
+    subq.w      #2,d7
+    bgt         .pair_loop_1w
+    bra         .exit
+
+.single_even_1w:
+    tst.w       d7
+    ble         .exit
+    move.w      (a0),d3
+    or.w        d4,d3
+    move.w      d3,(a0)
+
+    move.w      40(a0),d3
+    and.w       d5,d3
+    move.w      d3,40(a0)
+
+    move.w      80(a0),d3
+    and.w       d5,d3
+    move.w      d3,80(a0)
+
+    move.w      120(a0),d3
+    and.w       d5,d3
+    move.w      d3,120(a0)
 
 .exit:
     POPM        d0-d7/a0-a3
@@ -1603,8 +1860,21 @@ TilemapEraseEnemies:
 ; Destroys: d0-d7, a0-a4 (preserves a5, a6)
 ;==============================================================================
 
+TilemapUpdateTopEnemies:
+    moveq       #0,d0                   ; 0 = top rows only (ScreenY < 48)
+    bra.s       TilemapUpdateEnemiesFiltered
+
+TilemapUpdateLowerEnemies:
+    moveq       #1,d0                   ; 1 = lower rows only (ScreenY >= 48)
+    bra.s       TilemapUpdateEnemiesFiltered
+
 TilemapUpdateEnemies:
+    moveq       #-1,d0                  ; -1 = all enemies (unconditional)
+    ; fall through to TilemapUpdateEnemiesFiltered
+
+TilemapUpdateEnemiesFiltered:
     PUSHM       d0-d7/a0-a4
+    move.w      d0,-(sp)                ; (sp) = filter mode (0=top, 1=lower, -1=all)
 
     move.w      ActiveEnemyCount(a5),d7
     beq         .done_update_enemies
@@ -1614,6 +1884,31 @@ TilemapUpdateEnemies:
 .update_draw_loop:
     tst.w       ei_Type(a4)
     beq         .next_update_draw
+
+    ; -------------------------------------------------------------------------
+    ; 2-Tier Beam-Chasing Filter Check
+    ; -------------------------------------------------------------------------
+    move.w      (sp),d0                 ; d0 = filter mode
+    bmi.s       .filter_match           ; -1: process all!
+
+    ; Calculate Screen Y = ei_Y(a4) - TilemapCameraY(a5)
+    move.w      ei_Y(a4),d1
+    sub.w       TilemapCameraY(a5),d1   ; d1 = Screen Y
+
+    tst.w       d0
+    bne.s       .check_lower_tier       ; d0 == 1: check lower tier (>= 48)
+
+    ; Tier 0: Top Section (ScreenY < 48, Rows 0..2)
+    cmp.w       #48,d1
+    bge         .next_update_draw       ; >= 48: skip in Tier 0!
+    bra.s       .filter_match
+
+.check_lower_tier:
+    ; Tier 1: Lower Section (ScreenY >= 48, Rows 3+)
+    cmp.w       #48,d1
+    blt         .next_update_draw       ; < 48: skip in Tier 1!
+
+.filter_match:
 
     ; Check if stunned: halt in tracks and maintain current pose
     tst.w       ei_StunTimer(a4)
@@ -1763,6 +2058,7 @@ TilemapUpdateEnemies:
     movem.l     d7/a4,-(sp)             ; preserve enemy loop counter d7 and enemy pointer a4
     movea.l     a2,a4                   ; a4 -> Player struct
     bsr         TilemapDrawPlayer       ; re-draw player cleanly
+    bsr         TilemapSubmergePlayer   ; apply water tinting if submerged
     movem.l     (sp)+,d7/a4             ; restore enemy pointer and loop counter
 
 .do_draw_enemy:
@@ -1774,6 +2070,7 @@ TilemapUpdateEnemies:
     dbra        d7,.update_draw_loop
 
 .done_update_enemies:
+    addq.l      #2,sp                   ; deallocate filter mode word
     POPM        d0-d7/a0-a4
     rts
 
@@ -2922,11 +3219,6 @@ TilemapRestorePlayerOverlaps:
     move.w      #16,d2
     move.w      #16,d3
     bsr         TilemapStampForegroundOverBox
-
-    move.w      Actor_X(a3),d0
-    move.w      Actor_Y(a3),d1
-    bsr         TilemapSubmergeTile
-
     moveq       #1,d7
 
 .rpo_next_crate:
@@ -2968,11 +3260,6 @@ TilemapRestorePlayerOverlaps:
     move.w      #16,d2
     move.w      #16,d3
     bsr         TilemapStampForegroundOverBox
-
-    move.w      ox_Col(a4),d0
-    move.w      ox_Row(a4),d1
-    bsr         TilemapSubmergeTile
-
     moveq       #1,d7
 
 .rpo_next_oxygen:
@@ -3301,17 +3588,6 @@ TilemapDrawPlayer:
     ; player's bounding box to achieve layered depth (player walks behind foliage/pillars).
     bsr         TilemapStampForegroundOverPlayer
 
-    ; -------------------------------------------------------------------------
-    ; 8. Water Submersion Check
-    ; -------------------------------------------------------------------------
-    ; If the rising water level intersects the player's 24 scanlines, apply
-    ; translucent water tinting/dimming to the submerged portion.
-    move.w      WaterPixelY(a5),d2      ; d2 = WaterPixelY
-    bmi.s       .exit                   ; if water is inactive (< 0), skip
-    movea.l     a2,a0                   ; a0 = destination in DisplayScreen
-    move.w      #PLAYER_HEIGHT,d7       ; 24 scanlines
-    bsr         TilemapSubmergeActor
-
 .exit:
     rts
 
@@ -3329,6 +3605,49 @@ TilemapDrawPlayer:
 ;      a6   = CUSTOM ($dff000)
 ; Preserves: all caller registers (pushes d0-d7/a0-a4)
 ;==============================================================================
+;==============================================================================
+; TilemapSubmergePlayer  -  Apply water tinting to player BOB if submerged
+;
+; Called in Green phase (after SetRasterLogicColor) so that WAITBLIT and CPU
+; submersion loops do not delay the VBlank priority blit window.
+;
+; In:  a4 = pointer to active Player struct
+;      a5 = Variables base
+;      a6 = CUSTOM chip base ()
+; Preserves: all registers (pushes d0-d7/a0-a3)
+;==============================================================================
+TilemapSubmergePlayer:
+    move.w      WaterPixelY(a5),d2      ; d2 = WaterPixelY
+    bmi.s       .tsp_exit               ; if water inactive (< 0), exit
+    tst.w       Player_PrevDrawn(a4)    ; was player drawn this frame?
+    beq.s       .tsp_exit               ; if culled/not drawn, exit
+
+    move.w      Player_PrevY(a4),d3
+    add.w       #PLAYER_HEIGHT-1,d3     ; d3 = player bottom Y
+    cmp.w       d2,d3
+    blt.s       .tsp_exit               ; player bottom < WaterPixelY -> completely dry!
+
+    PUSHM       d0-d7/a0-a3
+
+    move.w      Player_PrevX(a4),d0
+    move.w      Player_PrevY(a4),d1
+    move.w      d1,d3
+    mulu.w      #TILEMAP_LINE_STRIDE,d3
+    moveq       #0,d4
+    move.w      d0,d4
+    lsr.w       #4,d4
+    add.w       d4,d4
+    add.l       d4,d3
+    lea         DisplayScreen,a0
+    adda.l      d3,a0
+    move.w      #PLAYER_HEIGHT,d7       ; 24 scanlines
+    bsr         TilemapSubmergeActor
+
+    POPM        d0-d7/a0-a3
+.tsp_exit:
+    rts
+
+
 TilemapStampForegroundOverPlayer:
     move.w      #PLAYER_WIDTH,d2
     move.w      #PLAYER_HEIGHT,d3
@@ -3438,11 +3757,6 @@ TilemapStampForegroundOverBox:
 
     ; Tile found! Blit single tile (d0 = tile index, d3 = col, d2 = row)
     bsr         TilemapBlitSingleTile
-
-    ; If this tile is under water, re-apply water submersion!
-    move.w      d3,d0                   ; col
-    move.w      d2,d1                   ; row
-    bsr         TilemapSubmergeTile
 
 .next_fg_col:
     addq.w      #1,d3
@@ -4865,9 +5179,12 @@ TilemapDrawPushBlocks:
     bra.s       .dpb_next
 
 .dpb_check_dirty:
+    tst.b       VHS_StateActive        ; during rewind, always redraw push blocks
+    bne.s       .dpb_do_draw
     tst.w       Actor_Dirty(a3)        ; skip already-drawn stationary push blocks
     beq.s       .dpb_next
 
+.dpb_do_draw:
     ; Draw settled push block at Actor_X, Actor_Y (stamps foreground & checks water)
     bsr         ActorDrawStatic
 

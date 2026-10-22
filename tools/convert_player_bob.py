@@ -3,12 +3,13 @@
 tools/convert_player_bob.py
 ---------------------------
 Generates the 24-sprite player master spritesheet and converts it into
-4-bitplane interleaved raw graphics, mask, and pure-white flash files for Blitter Objects (BOBs):
-  - assets/graphics/sprites/player_master_128x144.png (Reference PNG)
-  - assets/graphics/sprites/player_bobs_128x144.raw (9,216 bytes, 24 frames)
-  - assets/graphics/sprites/player_bobs_128x144.msk (9,216 bytes, 24 frames)
-  - assets/graphics/sprites/player_bobs_128x144_white.raw (9,216 bytes, 24 frames)
-  - assets/graphics/sprites/player_bobs_preview.png (Visual contact sheet)
+4-bitplane interleaved raw graphics, mask, pure-white flash files, and palette for Blitter Objects (BOBs):
+  - assets/graphics/player/player_master_female_128x144.png (Reference PNG)
+  - assets/graphics/player/player_bobs_female_128x144.raw (9,216 bytes, 24 frames)
+  - assets/graphics/player/player_bobs_female_128x144.msk (9,216 bytes, 24 frames)
+  - assets/graphics/player/player_bobs_female_128x144_white.raw (9,216 bytes, 24 frames)
+  - assets/graphics/player/player.pal (64 bytes, 32 words)
+  - assets/graphics/player/player_female_preview.png (Visual contact sheet)
 
 Layout (24 sprites in total, 6 rows x 4 frames):
   Row 0 (frames  0..3 ): IDLE (facing right)
@@ -31,10 +32,37 @@ Format:
 """
 
 import sys
+import struct
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# 32 words = 64 bytes (big-endian 16-bit RGB444 words)
+# Colors 16-31: Hardware sprite palette (Lives, Friends/Oxygen kit, OXY gauge, Bubble)
+PLAYER_SPRITE_PALETTE = [
+    # SPR0/SPR1 Player Lives Heart (Colors 16-19)
+    0x0000, 0x0601, 0x0F22, 0x0FFF,
+    # SPR2/SPR3 Oxygen Kit & Duckling Friends Badge (Colors 20-23)
+    0x0B66, 0x0E71, 0x0FD1, 0x0FFF,
+    # SPR4/SPR5 Oxygen Gauge (Colors 24-27)
+    0x0A60, 0x0FFF, 0x02DF, 0x0024,
+    # SPR6/SPR7 In-World Air Bubble (Colors 28-31)
+    0x0043, 0x0733, 0x0322, 0x0111,
+    # Colors 32-47: reserved padding
+    0x0000, 0x0000, 0x0000, 0x0000,
+    0x0000, 0x0000, 0x0000, 0x0000,
+    0x0000, 0x0000, 0x0000, 0x0000,
+    0x0000, 0x0000, 0x0000, 0x0000,
+]
+
+
+def export_player_palette(pal_path: Path):
+    pal_path.parent.mkdir(parents=True, exist_ok=True)
+    pal_bytes = struct.pack(f'>{len(PLAYER_SPRITE_PALETTE)}H', *PLAYER_SPRITE_PALETTE)
+    with open(pal_path, "wb") as f:
+        f.write(pal_bytes)
+    print(f"  Exported palette: {pal_path} ({len(pal_bytes)} bytes)")
 
 # Vibrant 16-color OCS palette (matches export_level.py & compact tileset)
 PALETTE_OCS = [
@@ -221,7 +249,7 @@ def assemble_24_player_frames(cels):
 
 def export_master_png(frames, out_path: Path):
     """
-    Export assets/graphics/sprites/player_master_128x144.png (128x144 RGBA).
+    Export assets/graphics/player/player_master_128x144.png (128x144 RGBA).
     6 rows x 4 columns of 32x24 cells (24px active art, 8px transparent padding).
     """
     img = Image.new('RGBA', (128, 144), (0, 0, 0, 0))
@@ -390,11 +418,14 @@ def convert_sheet(sheet_png: Path, raw_path: Path, msk_path: Path, white_path: P
 
 def main():
     print("=== Converting Player BOB Assets (24 Frames, 128x144) ===")
-    female_png = PROJECT_ROOT / "assets/graphics/sprites/player_master_female_128x144.png"
-    female_raw = PROJECT_ROOT / "assets/graphics/sprites/player_bobs_female_128x144.raw"
-    female_msk = PROJECT_ROOT / "assets/graphics/sprites/player_bobs_female_128x144.msk"
-    female_white = PROJECT_ROOT / "assets/graphics/sprites/player_bobs_female_128x144_white.raw"
-    female_preview = PROJECT_ROOT / "assets/graphics/sprites/player_female_preview.png"
+    female_png = PROJECT_ROOT / "assets/graphics/player/player_master_female_128x144.png"
+    female_raw = PROJECT_ROOT / "assets/graphics/player/player_bobs_female_128x144.raw"
+    female_msk = PROJECT_ROOT / "assets/graphics/player/player_bobs_female_128x144.msk"
+    female_white = PROJECT_ROOT / "assets/graphics/player/player_bobs_female_128x144_white.raw"
+    female_preview = PROJECT_ROOT / "assets/graphics/player/player_female_preview.png"
+    female_pal = PROJECT_ROOT / "assets/graphics/player/player.pal"
+
+    export_player_palette(female_pal)
 
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     if args:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-convert_headshots.py - Convert 128x64 headshot PNGs (Bob & Denise) to Amiga 5-plane raw bitplanes and palettes.
+convert_headshots.py - Convert 128x64 headshot PNGs (Mia) to Amiga 5-plane raw bitplanes and palettes.
 
 Each 128x64 PNG contains two 64x64 pixel art portraits side by side:
   - Frame 0 (X=0..63, Y=0..63)
@@ -120,10 +120,10 @@ def main():
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     hs_dir = os.path.join(base_dir, 'assets', 'graphics', 'headshots')
 
-    denise_png = os.path.join(hs_dir, 'headshot_denise_128x64.png')
-    denise_raw = os.path.join(hs_dir, 'headshot_denise_128x64.raw')
-    denise_pal = os.path.join(hs_dir, 'headshot_denise.pal')
-    process_character(denise_png, denise_raw, denise_pal, 'Denise')
+    mia_png = os.path.join(hs_dir, 'headshot_mia_128x64.png')
+    mia_raw = os.path.join(hs_dir, 'headshot_mia_128x64.raw')
+    mia_pal = os.path.join(hs_dir, 'headshot_mia.pal')
+    process_character(mia_png, mia_raw, mia_pal, 'Mia')
 
     print("[*] Headshot asset conversion complete!")
 

@@ -520,6 +520,7 @@ ActionPlayerPush:
     ; and updates player to current sub-pixel walking position!
     lea         Player(a5),a4
     bsr         TilemapDrawPlayer
+    bsr         TilemapSubmergePlayer
 
     ; Redraw block at its new sub-pixel position on top of the player's hands
     move.l      PushedActor(a5),a3
@@ -632,7 +633,6 @@ ActionPlayerFall:
     rts
 
 
-; ActionFrozenPlayerFall  ->  frozenplayer.asm
 
 
 ;==============================================================================
@@ -709,7 +709,6 @@ FlushDirtyTiles:
     rts
 
 
-; SetupFrozenPlayerActor  ->  frozenplayer.asm
 
 
 ;==============================================================================
@@ -1052,6 +1051,7 @@ ActionIdle:
     blt         .f9_done                ; nothing to undo: clear key, skip both
     bsr         UndoMove
     bsr         VHS_StartEffect
+    bsr         AudioPlayRewind
 .f9_done
     rts
 .nof9
@@ -1180,7 +1180,6 @@ PlayerMoveLogic:
     rts
 
 
-; PlayerFallLogicFrozen  ->  frozenplayer.asm
 
 
 ;==============================================================================
@@ -3225,7 +3224,7 @@ ActionDeath:
 ;==============================================================================
 ; PlayerInitFlippedSprites  -  Initialize player sprite buffers
 ;
-; Denise's right-facing master graphics are pre-loaded directly in Chip RAM
+; Mia's right-facing master graphics are pre-loaded directly in Chip RAM
 ; (PlayerRightRaw, PlayerRightMsk, PlayerRightWhiteRaw).
 ;
 ; This routine:

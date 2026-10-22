@@ -280,6 +280,7 @@ LevelIntroSetup:
     clr.w       Pause_PaletteActive(a5)
     clr.w       DebugOverlayActive(a5)
     clr.w       PrevDebugDrawn(a5)
+    clr.w       VBlankOverrunCount(a5)  ; start level with clean 0 overruns
     lea         Keys,a0
     clr.b       KEY_S(a0)
     clr.b       KEY_A(a0)
@@ -391,10 +392,9 @@ LevelTransitionRun:
     rts
 
 .show_banner
-    ; All tiles blitted black - draw the chapter/level banner (if any) onto
-    ; the now-blank DisplayScreen, then start the hold countdown (extended if
-    ; a banner was drawn, so the player has time to read it), advance to
-    ; LEVEL_HOLD.
+    ; All tiles blitted black - install cpBanner so the banner text is drawn
+    ; onto a clean black display with dedicated high-contrast palette
+    bsr         BannerCopperInit
     bsr         LevelBannerShow         ; d0 = suggested WipeHoldTick (PAL-scaled)
     move.w      d0,WipeHoldTick(a5)
     move.w      #LEVEL_HOLD,GameStatus(a5)
@@ -406,6 +406,22 @@ LevelTransitionRun:
 .hold_phase
     move.w      WipeHoldTick(a5),d0
     beq         .hold_done
+
+    ; Allow skipping banner hold if Fire or Return/Space is pressed
+    tst.w       LevelCompleteWipe(a5)
+    bne.s       .no_skip
+    lea         Keys,a0
+    tst.b       KEY_RETURN(a0)
+    bne.s       .do_skip
+    tst.b       KEY_SPACE(a0)
+    bne.s       .do_skip
+    btst        #7,$bfe001              ; CIAAPRA bit 7: Fire button (active low = 0)
+    bne.s       .no_skip
+.do_skip:
+    clr.b       KEY_RETURN(a0)
+    clr.b       KEY_SPACE(a0)
+    moveq       #1,d0                   ; trigger immediate transition next tick
+.no_skip:
     subq.w      #1,d0
     move.w      d0,WipeHoldTick(a5)
     rts
@@ -426,27 +442,17 @@ LevelTransitionRun:
 .normal_lc:
     move.w      #LEVEL_COMPLETE_SETUP,GameStatus(a5)
     rts
+
 .normal_reveal
-    ; Foreign-copper entry (title screen / level-complete screen): the wipe has
-    ; blanked the whole display to the outgoing screen's background.  Prepare the
-    ; game copper (cpGame) WHILE the old copper is still showing that blank frame,
-    ; then switch — so the swap (geometry + palette + banner-WAIT removal) is
-    ; invisible.  No in-place clear of the live buffer: that was the noise source.
-    tst.w       EnterGameCopper(a5)
-    beq         .nr_reveal
+    ; Transition from cpBanner (or foreign copper) to cpGame:
+    ; Build the level, load tileset palette into cpPal, install cpGame
     clr.w       EnterGameCopper(a5)
     bsr         GameCopperInit          ; patch cpGame bitplane ptrs + default pal, hide sprites
-    bsr         LevelRevealSetup        ; build level; SetLevelAssets loads the real palette into cpPal
+    bsr         LevelRevealSetup        ; build level; TilemapInit draws DisplayScreen & loads palette into cpPal
    ; bsr         VHS_Init                ; arm VHS distortion region (PAL/NTSC)
     move.l      #-1,ScreenMemEnd        ; re-arm the screen overrun sentinel
-    move.l      #cpGame,COP1LC(a6)      ; switch to the fully-prepared game copper (black -> black)
+    move.l      #cpGame,COP1LC(a6)      ; switch to the fully-prepared game copper
     move.w      #0,COPJMP1(a6)
-    move.w      #LEVEL_REVEAL,GameStatus(a5)
-    rts
-
-.nr_reveal
-    ; Level-to-level: the game copper is already live; just build and reveal.
-    bsr         LevelRevealSetup        ; primes WipeTileX/Y for reverse reveal
     move.w      #LEVEL_REVEAL,GameStatus(a5)
     rts
 
@@ -489,6 +495,7 @@ LevelTransitionRun:
     bsr         DrawPlayersAndActors
     bsr         LevelIntroSetup
     bsr         AudioPlayLevelMusic     ; start MOD music as level becomes playable
+    clr.w       VBlankOverrunCount(a5)  ; clear multi-frame level load/reveal overruns before entering GAME_RUN!
 
     move.w      #GAME_RUN,GameStatus(a5)       ; return to GameRun (state 2)
     rts
@@ -520,6 +527,34 @@ DrawInitialPlayers:
     rts
 
 ;==============================================================================
+; BannerCopperInit  -  Install and activate cpBanner for intro text
+;
+; Patches cpBannerPlanes with DisplayScreen bitplane addresses (5 planes,
+; stride 40, interleaved), masks all 8 sprites to NullSprite, and points
+; COP1LC to cpBanner with an immediate strobe to COPJMP1.
+;==============================================================================
+
+BannerCopperInit:
+    PUSHM       d0-d1/d7/a0
+    lea         cpBannerPlanes,a0
+    move.l      #DisplayScreen,d0
+    move.l      #SCREEN_WIDTH_BYTE,d1
+    moveq       #5,d7
+    bsr         CopperSetPtrs
+
+    lea         cpBannerSprites,a0
+    move.l      #NullSprite,d0
+    moveq       #0,d1
+    moveq       #8,d7
+    bsr         CopperSetPtrs
+
+    move.l      #cpBanner,COP1LC(a6)
+    move.w      #0,COPJMP1(a6)
+    POPM        d0-d1/d7/a0
+    rts
+
+
+;==============================================================================
 ; LevelBannerShow  -  Draw the chapter title (if this is a chapter's first
 ; level) and the level's own name+lesson (if defined) onto DisplayScreen.
 ;
@@ -529,9 +564,9 @@ DrawInitialPlayers:
 ; DisplayScreen stays untouched for the entire LEVEL_HOLD countdown, so
 ; whatever is drawn here is what the player reads during the hold.
 ;
-; Text data (ChapterLevelIdx/NamePtr, LevelNamePtr/LessonPtr1/Ptr2) is
-; defined in leveltext.asm. Levels without an entry
-; get null pointers here and fall through to the short default hold.
+; Text data is read directly from CurrentLevelDef(a5): LevelDef_TitleStr
+; (rendered in yellow Michroma/8x8 font) and LevelDef_SubTitleStr (rendered in green HUD font).
+; Levels without title strings fall through to the default short wipe hold.
 ;
 ; Out: d0.w = suggested WipeHoldTick value (PAL-frame-scaled) - long enough
 ;      to read whatever was drawn, or WIPE_HOLD_TICKS if nothing was shown.
@@ -604,8 +639,8 @@ LevelBannerShow:
 ;   a3 = string-blit routine to call (CHAR_BLTString family: a0=string,
 ;        a1=destination address; preserves a0, advances a1)
 ;
-; Centres against the 42-character-wide screen (336px / 8px per glyph);
-; strings longer than 42 characters are left-aligned (clipped) instead.
+; Centres against the 40-character-wide screen (320px / 8px per glyph);
+; strings longer than 40 characters are left-aligned (clipped) instead.
 ;
 ; Destroys: d0, d2 (d1 consumed for the row computation)
 ;==============================================================================
@@ -620,14 +655,14 @@ DrawCenteredLine:
     addq.w      #1,d0
     bra         .dcl_len
 .dcl_lendone
-    moveq       #42,d2
+    moveq       #SCREEN_WIDTH_BYTE,d2   ; 40 columns (320px / 8px per char)
     sub.w       d0,d2
     bpl         .dcl_fits
     moveq       #0,d2                   ; too long for the screen: left-align
 .dcl_fits
     asr.w       #1,d2                   ; d2 = centred byte column
 
-    mulu        #SCREEN_STRIDE,d1       ; d1 = byte row offset
+    mulu        #SCREEN_STRIDE,d1       ; d1 = byte row offset (5 * 40 = 200 bytes)
     add.w       d2,d1
     lea         DisplayScreen,a1
     add.l       d1,a1                   ; a1 = destination address
@@ -643,16 +678,40 @@ DrawCenteredLine:
 ; Called from LevelTransitionRun for the LEVEL_INIT phase, immediately after LevelId is incremented.
 ;
 ; Actions:
-;   1. Reset WipeTilesDone = 0.
-;   2. Pick a random wipe pattern using RANDOMWORD and store in WipePattern.
-;   3. Call the appropriate WipeFill routine to build WipeTileX/Y arrays.
-;   4. Hide all hardware sprites (ClearSprites).
+;   1. Resolve CurrentLevelDef early so LevelBannerShow has the correct LevelDef.
+;   2. Reset WipeTilesDone = 0.
+;   3. Pick a random wipe pattern using RANDOMWORD and store in WipePattern.
+;   4. Call the appropriate WipeFill routine to build WipeTileX/Y arrays.
+;   5. Hide all hardware sprites (ClearSprites).
 ;
 ; On entry: a5 = Variables base, a6 = CUSTOM.
 ;==============================================================================
 
 LevelSetup:
     PUSHALL
+
+    ; -------------------------------------------------------------------------
+    ; 0. Resolve CurrentLevelDef early
+    ; Guarantees LevelBannerShow has the correct LevelDef descriptor for
+    ; Level 1, Level 2, and all subsequent levels during the wipe and hold!
+    ; -------------------------------------------------------------------------
+    tst.w       CustomLevelLoaded(a5)
+    beq.s       .setup_normal_def
+    move.l      CustomLevelDef(a5),CurrentLevelDef(a5)
+    bra.s       .setup_def_done
+
+.setup_normal_def:
+    move.w      LevelId(a5),d0
+    cmp.w       #LEVEL_TABLE_COUNT,d0
+    bge.s       .setup_no_def
+    lsl.w       #2,d0
+    lea         LevelTable,a0
+    move.l      (a0,d0.w),CurrentLevelDef(a5)
+    bra.s       .setup_def_done
+
+.setup_no_def:
+    clr.l       CurrentLevelDef(a5)
+.setup_def_done:
 
     ; Initialise wipe counter (WipeHoldTick is set when wipe completes)
     clr.w       WipeTilesDone(a5)

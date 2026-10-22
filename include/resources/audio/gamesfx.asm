@@ -103,6 +103,15 @@ SfxGameOver:
     dc.b    SFX_AUTO_CHANNEL
     dc.b    120                         ; highest priority
 
+SfxRewind:
+    dc.l    SfxRewind_Raw
+    dc.w    (SfxRewind_RawEnd-SfxRewind_Raw)/2
+    dc.w    SFX_DEFAULT_PERIOD
+    dc.w    64                          ; full volume
+    dc.b    SFX_AUTO_CHANNEL
+    dc.b    85                          ; priority (distinct player action)
+
+
 
 ;------------------------------------------------------------------------------
 ; Raw 8-Bit Signed PCM Audio Data (Chip RAM)
@@ -159,3 +168,9 @@ SfxGameOver_Raw:
     incbin      "assets/fx/sfx_game_over.raw"
     even
 SfxGameOver_RawEnd:
+
+SfxRewind_Raw:
+    incbin      "assets/fx/sfx_rewind.raw"
+    even
+SfxRewind_RawEnd:
+

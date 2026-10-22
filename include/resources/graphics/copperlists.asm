@@ -21,9 +21,15 @@
 ;   COPPER_HALT (dc.l $fffffffe) - special WAIT that is never satisfied,
 ;     stopping the Copper at the end of the list.
 ;
-; This file defines two copper lists:
-;   cpGame  - game screen (5-plane, 32-colour, full screen)
-;   cpLoading - loading screen (5-plane, 32-colour, wider format for star effect)
+; This file defines the Copper lists for all game screens and states:
+;   cpGame          - In-game tilemap viewport & HUD (4-plane, 16 colours + 16 sprite colours)
+;   cpLoading       - ZX Spectrum tape loading screen & animated border bars (5-plane)
+;   cpTitle         - Title menu screen with animated aurora background (5-plane)
+;   cpLevelComplete - Victory screen with Mia portrait & shimmering color bars (5-plane)
+;   cpGameComplete  - 3-layer parallax starfield & floating duckling victory (5-plane)
+;   cpGameOver      - Blade Runner crimson red terminal display & klaxon (5-plane)
+;   cpFlash         - Amiga Game Engine opening boot splash banner (5-plane)
+;   cpBanner        - Chapter/Level intro title banner screen (5-plane)
 ;
 ; Both lists are in the data_chip section (Chip RAM) because the Copper
 ; can only DMA-fetch from Chip RAM.
@@ -129,7 +135,7 @@ cpSprites:
 ; cpPal  - 32 palette entries, patched by SetLevelAssets / GameCopperInit.
 ; COLOR00 (index 0) is the background colour, also used for transparent sprite pixels.
 ; Colors 0-15  = tile/background palette (from tiles_N.pal)
-; Colors 16-31 = sprite / actor palette  (from sprites.pal)
+; Colors 16-31 = sprite / actor palette  (from player.pal)
 ; Initial value $00f (blue) is a placeholder visible only before the real palette is loaded.
 cpPal:
     dc.w    COLOR00,$00f            ; colour  0: background (placeholder blue)
@@ -968,4 +974,107 @@ cpFlashPal:
     dc.l    COPPER_HALT
     dc.l    COPPER_HALT
 
+
+;==============================================================================
+; cpBanner  -  Level/Chapter Intro Banner screen copper list
+;
+; Displayed during the LEVEL_HOLD phase between wiping the screen black and
+; revealing the new level. Displays the chapter/level title and subtitle
+; against a pure black background with high-contrast text colours.
+;
+; 320x216, 5-plane interleaved (SCREEN_MOD = 160, SCREEN_STRIDE = 200).
+;
+; Runtime patching:
+;   cpBannerPlanes  - DisplayScreen bitplane addresses (planes 0..4)
+;   cpBannerSprites - all 8 sprite channels -> NullSprite
+;
+; Palette:
+;   COLOR00 = $0000 pure black background
+;   COLOR03 = $0FFF crisp white (CHAR_BLTHudChar planes 0+1)
+;   COLOR24 = $02E4 mint green  (CHAR_BLTGreenChar planes 3+4)
+;   COLOR26 = $0FE0 bright yellow/gold (CHAR_BLTYellowChar planes 1+3+4)
+;   COLOR31 = $0FFF pure white  (CHAR_BLTOneChar all 5 planes)
+;==============================================================================
+
+cpBanner:
+    dc.w    $01fc,$0000             ; FMODE: OCS slow fetch mode
+    dc.w    DIWSTRT,WINDOW_START    ; standard display window ($2c81 PAL / patched NTSC)
+    dc.w    DIWSTOP,WINDOW_STOP
+    dc.w    DDFSTRT,FETCH_START     ; $38 (320px fetch)
+    dc.w    DDFSTOP,FETCH_STOP      ; $D0
+    dc.w    BPLCON0,$5200           ; 5 bitplanes, colour enable, lo-res
+    dc.w    BPLCON1,$0000           ; no horizontal scroll
+    dc.w    BPLCON2,$0024           ; sprites in front
+    dc.w    BPL1MOD,SCREEN_MOD      ; interleaved 5-plane modulo: 40*4 = 160
+    dc.w    BPL2MOD,SCREEN_MOD
+
+; cpBannerPlanes - patched by BannerCopperInit with DisplayScreen bitplane addresses
+cpBannerPlanes:
+    dc.w    BPL1PTH,0
+    dc.w    BPL1PTL,0
+    dc.w    BPL2PTH,0
+    dc.w    BPL2PTL,0
+    dc.w    BPL3PTH,0
+    dc.w    BPL3PTL,0
+    dc.w    BPL4PTH,0
+    dc.w    BPL4PTL,0
+    dc.w    BPL5PTH,0
+    dc.w    BPL5PTL,0
+
+; cpBannerSprites - all 8 sprites pointed at NullSprite
+cpBannerSprites:
+    dc.w    SPR0PTH,0
+    dc.w    SPR0PTL,0
+    dc.w    SPR1PTH,0
+    dc.w    SPR1PTL,0
+    dc.w    SPR2PTH,0
+    dc.w    SPR2PTL,0
+    dc.w    SPR3PTH,0
+    dc.w    SPR3PTL,0
+    dc.w    SPR4PTH,0
+    dc.w    SPR4PTL,0
+    dc.w    SPR5PTH,0
+    dc.w    SPR5PTL,0
+    dc.w    SPR6PTH,0
+    dc.w    SPR6PTL,0
+    dc.w    SPR7PTH,0
+    dc.w    SPR7PTL,0
+
+; cpBannerPal - 32 color entries (COLOR00-COLOR31)
+cpBannerPal:
+    dc.w    COLOR00,$0000           ; 00: pure black background
+    dc.w    COLOR01,$0000
+    dc.w    COLOR02,$0000
+    dc.w    COLOR03,$0FFF           ; 03: crisp white (CHAR_BLTHudChar planes 0+1)
+    dc.w    COLOR04,$0000
+    dc.w    COLOR05,$0000
+    dc.w    COLOR06,$0000
+    dc.w    COLOR07,$0000
+    dc.w    COLOR08,$0000
+    dc.w    COLOR09,$0000
+    dc.w    COLOR10,$0000
+    dc.w    COLOR11,$0000
+    dc.w    COLOR12,$0000
+    dc.w    COLOR13,$0000
+    dc.w    COLOR14,$0000
+    dc.w    COLOR15,$0000
+    dc.w    COLOR16,$0000
+    dc.w    COLOR17,$0000
+    dc.w    COLOR18,$0000
+    dc.w    COLOR19,$0000
+    dc.w    COLOR20,$0000
+    dc.w    COLOR21,$0000
+    dc.w    COLOR22,$0000
+    dc.w    COLOR23,$0000
+    dc.w    COLOR24,$02E4           ; 24: mint green (CHAR_BLTGreenChar planes 3+4)
+    dc.w    COLOR25,$0000
+    dc.w    COLOR26,$0FE0           ; 26: vibrant yellow/gold (CHAR_BLTYellowChar planes 1+3+4)
+    dc.w    COLOR27,$0000
+    dc.w    COLOR28,$0C00           ; 28: red (CHAR_BLTRedChar)
+    dc.w    COLOR29,$0000
+    dc.w    COLOR30,$0000
+    dc.w    COLOR31,$0FFF           ; 31: crisp white (CHAR_BLTOneChar all 5 planes)
+
+    dc.l    COPPER_HALT
+    dc.l    COPPER_HALT
 

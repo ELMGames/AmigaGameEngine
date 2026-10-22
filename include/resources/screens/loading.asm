@@ -863,7 +863,7 @@ LoadingBeginTitleWipe:
 ;
 ; Blits up to WIPE_SPEED 24x24 tiles black on DisplayScreen this frame, in the
 ; order held in WipeTileX/Y, advancing WipeTilesDone.  Reuses WipeBlitBlack
-; (mapstuff.asm) exactly as the level wipe does.
+; (screenutils.asm) exactly as the level wipe does.
 ;
 ; OUT: d0.w = 0 while tiles remain, 1 once the whole screen is black.
 ; All other registers preserved.
