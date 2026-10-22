@@ -766,7 +766,20 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
     # Camera scroll bounds: map height minus visible viewport (216px display window)
     max_cam_y_default = max(0, height * 16 - 216)
     min_cam_y = int(map_props.get("min_camera_y", map_props.get("mincameray", 0)))
-    max_cam_y = int(map_props.get("max_camera_y", map_props.get("maxcameray", max_cam_y_default)))
+    raw_max_cam = map_props.get("max_camera_y", map_props.get("maxcameray"))
+    if raw_max_cam is not None:
+        # Enforce that max_cam_y is at least max_cam_y_default so camera can always reach bottom row
+        max_cam_y = max(max_cam_y_default, int(raw_max_cam))
+    else:
+        max_cam_y = max_cam_y_default
+
+    has_explicit_init_cam = (
+        "initial_camera_y" in map_props
+        or "initial_row" in map_props
+        or "initial_tile_row" in map_props
+        or "initialcameray" in map_props
+        or "cameray" in map_props
+    )
     if "initial_camera_y" in map_props:
         init_cam_y = int(map_props["initial_camera_y"])
     elif "initial_row" in map_props:
@@ -1409,6 +1422,13 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
     if gamemap[player_start["row"] * width + player_start["col"]] == BLOCK_SOLID and player_start["row"] > 0:
         player_start["row"] -= 1
     gamemap[player_start["row"] * width + player_start["col"]] = BLOCK_PLAYERSTART
+
+    # Finalize initial camera: if not explicitly specified, center on player start
+    if not has_explicit_init_cam:
+        desired_cam = player_start["row"] * 16 - 100
+        init_cam_y = max(min_cam_y, min(max_cam_y, desired_cam))
+    else:
+        init_cam_y = max(min_cam_y, min(max_cam_y, init_cam_y))
 
     # =========================================================================
     # Write Binary Tilemap & GameMap Files

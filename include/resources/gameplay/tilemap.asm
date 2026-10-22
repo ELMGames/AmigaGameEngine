@@ -328,23 +328,23 @@ TileSheetOffsetTable:
 
     even
 TileRowStrideTable:
-    ; Row 0..41 screen stride offsets (Row * 2560 bytes)
+    ; Row 0..43 screen stride offsets (Row * 2560 bytes)
     dc.l    0, 2560, 5120, 7680, 10240, 12800, 15360, 17920
     dc.l    20480, 23040, 25600, 28160, 30720, 33280, 35840, 38400
     dc.l    40960, 43520, 46080, 48640, 51200, 53760, 56320, 58880
     dc.l    61440, 64000, 66560, 69120, 71680, 74240, 76800, 79360
     dc.l    81920, 84480, 87040, 89600, 92160, 94720, 97280, 99840
-    dc.l    102400, 104960
+    dc.l    102400, 104960, 107520, 110080
 
     even
 MapRowOffsetTable:
-    ; Row 0..41 grid offsets (Row * 20 tiles)
+    ; Row 0..43 grid offsets (Row * 20 tiles)
     dc.w    0, 20, 40, 60, 80, 100, 120, 140
     dc.w    160, 180, 200, 220, 240, 260, 280, 300
     dc.w    320, 340, 360, 380, 400, 420, 440, 460
     dc.w    480, 500, 520, 540, 560, 580, 600, 620
     dc.w    640, 660, 680, 700, 720, 740, 760, 780
-    dc.w    800, 820
+    dc.w    800, 820, 840, 860
 
 TilemapDrawLayer:
     clr.w       d0                      ; StartRow = 0
@@ -4939,7 +4939,7 @@ TilemapErase16x16Actor:
     bge         .tea_exit
     cmp.w       #0,d1
     blt         .tea_exit
-    cmp.w       #672-16,d1
+    cmp.w       #LEVEL_SCREEN_HEIGHT-16,d1
     bgt         .tea_exit
 
     ; Screen byte offset in 4-plane interleaved = (Y * 160) + ((X / 16) * 2)
@@ -5020,7 +5020,7 @@ DrawActor:
     bgt         .da_skip
     cmp.w       #0,d1
     blt         .da_skip
-    cmp.w       #672-16,d1
+    cmp.w       #LEVEL_SCREEN_HEIGHT-16,d1
     bgt         .da_skip
 
     ; Viewport Y culling: CameraCullTopY <= Y <= CameraCullBottomY

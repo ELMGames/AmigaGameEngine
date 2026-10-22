@@ -225,10 +225,29 @@ def main():
         print(f"Error: {src_enemies_png} does not exist!")
         return
 
-    print(f"[*] Converting enemy spritesheet: {src_enemies_png.name}")
     enemies_img = Image.open(src_enemies_png).convert("RGBA")
-    assert enemies_img.size == (64, 128), f"Expected 64x128 PNG, got {enemies_img.size}"
+    w, h = enemies_img.size
+    print(f"[*] Converting enemy spritesheet: {src_enemies_png.name} ({w}x{h})")
+    assert w == 64 and h in (48, 128), f"Expected 64x48 or 64x128 PNG, got {enemies_img.size}"
+
+    out_enemies_raw = PROJECT_ROOT / f"assets/graphics/enemies/enemies_64x{h}.raw"
+    out_enemies_msk = PROJECT_ROOT / f"assets/graphics/enemies/enemies_64x{h}.msk"
+    out_enemies_white = PROJECT_ROOT / f"assets/graphics/enemies/enemies_64x{h}_white.raw"
     convert_image_to_bobs(enemies_img, out_enemies_raw, out_enemies_msk, out_enemies_white)
+
+    # For compatibility, if h == 48, also write 64x128 padded files (just like convert_animals.py)
+    if h == 48:
+        compat_raw = PROJECT_ROOT / "assets/graphics/enemies/enemies_64x128.raw"
+        compat_msk = PROJECT_ROOT / "assets/graphics/enemies/enemies_64x128.msk"
+        compat_white = PROJECT_ROOT / "assets/graphics/enemies/enemies_64x128_white.raw"
+        pad = bytearray(512 * 5)  # 5 rows x 512 bytes = 2560 bytes padding
+        with open(out_enemies_raw, "rb") as f_in, open(compat_raw, "wb") as f_out:
+            f_out.write(f_in.read() + pad)
+        with open(out_enemies_msk, "rb") as f_in, open(compat_msk, "wb") as f_out:
+            f_out.write(f_in.read() + pad)
+        with open(out_enemies_white, "rb") as f_in, open(compat_white, "wb") as f_out:
+            f_out.write(f_in.read() + pad)
+        print(f"    Exported compat padded 64x128 raw/msk/white ({4096} bytes each)")
 
     # 2. Dizzy Stars Animation (64x16, 4 frames of 16x16 orbiting stars)
     dizzy_png = PROJECT_ROOT / "assets/graphics/enemies/dizzy_stars_64x16.png"

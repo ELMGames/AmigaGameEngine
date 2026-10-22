@@ -59,9 +59,9 @@ DATA_CHIP = [
     # --- Gameplay graphics & sprites ---
     ("GameTilesRaw",             "assets/graphics/tiles/tileset-compact_176x80.raw",    7_072, "176x80, 5 planes interleaved"),
     ("GameTilesMsk",             "assets/graphics/tiles/tileset-compact_176x80.msk",    7_040, "1-plane blitter mask"),
-    ("EnemySpritesRaw",          "assets/graphics/enemies/enemies_64x128.raw",          4_096, "64x128, 4 planes interleaved"),
-    ("EnemySpritesWhiteRaw",     "assets/graphics/enemies/enemies_64x128_white.raw",    4_096, "flash/stun mask"),
-    ("EnemySpritesMsk",          "assets/graphics/enemies/enemies_64x128.msk",          4_096, "1-plane blitter mask"),
+    ("EnemySpritesRaw",          "assets/graphics/enemies/enemies_64x48.raw",           1_536, "64x48, 4 planes interleaved"),
+    ("EnemySpritesWhiteRaw",     "assets/graphics/enemies/enemies_64x48_white.raw",     1_536, "flash/stun mask"),
+    ("EnemySpritesMsk",          "assets/graphics/enemies/enemies_64x48.msk",           1_536, "1-plane blitter mask"),
     ("DizzyStarsRaw",            "assets/graphics/enemies/dizzy_stars_64x16.raw",         512, "64x16, 4 planes"),
     ("DizzyStarsMsk",            "assets/graphics/enemies/dizzy_stars_64x16.msk",         512, "1-plane mask"),
     ("AnimalSpritesRaw",         "assets/graphics/animals/animals_64x48.raw",           1_536, "64x48, 4 planes"),

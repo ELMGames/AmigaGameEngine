@@ -83,9 +83,11 @@ Level_05_Player2Dir:      dc.w    0       ; -1=Left, +1=Right (0=Solo)
 ; Enemy Spawn Table
 ; Format: Type (w), Col (w), Row (w), SpawnX (w), SpawnY (w), PatrolMinX (w), PatrolMaxX (w), Speed (w)
 ;------------------------------------------------------------------------------
-Level_05_EnemyCount:      dc.w    1
+Level_05_EnemyCount:      dc.w    3
 Level_05_EnemyList:
-    dc.w    2, 14, 6, 224, 96, 176, 288, 1   ; Enemy 1
+    dc.w    1, 6, 2, 96, 32, 80, 144, 1   ; Enemy 1
+    dc.w    2, 3, 5, 48, 80, 0, 96, 2   ; Enemy 2
+    dc.w    2, 14, 5, 224, 80, 176, 272, 2   ; Enemy 3
     dc.w    $ffff                       ; End of list marker
 
 ;------------------------------------------------------------------------------

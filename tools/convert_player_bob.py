@@ -109,6 +109,11 @@ def quantize_pixel(r: int, g: int, b: int, a: int) -> int:
     if a <= 128:
         return 0
 
+    # 0. Exact match against authentic 16-color Amiga OCS palette:
+    for idx, (pr, pg, pb) in enumerate(PAL_8BIT[1:], start=1):
+        if (r, g, b) == (pr, pg, pb):
+            return idx
+
     # Semantic assignments for player sprite features:
     # 1. Dark outline / shadow:
     if max(r, g, b) < 45:

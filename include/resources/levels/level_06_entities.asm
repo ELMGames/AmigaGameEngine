@@ -4,8 +4,8 @@
 ;==============================================================================
 
 Level_06_MapWidth:        dc.w    20
-Level_06_MapHeight:       dc.w    26
-Level_06_MapSize:         dc.w    520
+Level_06_MapHeight:       dc.w    43
+Level_06_MapSize:         dc.w    860
 Level_06_TileWidth:       dc.w    16
 Level_06_TileHeight:      dc.w    16
 Level_06_LayerCount:      dc.w    4
@@ -52,7 +52,7 @@ Level_06_CompositeMap:
     even
 
 ;------------------------------------------------------------------------------
-; 1D GameMap Binary (20 cols x 26 rows = 520 bytes)
+; 1D GameMap Binary (20 cols x 43 rows = 860 bytes)
 ; Format: 1 byte per tile, containing BLOCK_xxx values
 ;------------------------------------------------------------------------------
 Level_06_GameMap:
@@ -83,12 +83,14 @@ Level_06_Player2Dir:      dc.w    0       ; -1=Left, +1=Right (0=Solo)
 ; Enemy Spawn Table
 ; Format: Type (w), Col (w), Row (w), SpawnX (w), SpawnY (w), PatrolMinX (w), PatrolMaxX (w), Speed (w)
 ;------------------------------------------------------------------------------
-Level_06_EnemyCount:      dc.w    4
+Level_06_EnemyCount:      dc.w    6
 Level_06_EnemyList:
-    dc.w    5, 7, 4, 112, 64, 96, 144, 1   ; Enemy 1
-    dc.w    2, 7, 10, 112, 160, 32, 112, 1   ; Enemy 2
-    dc.w    5, 9, 15, 144, 240, 96, 240, 1   ; Enemy 3
-    dc.w    2, 15, 23, 240, 368, 128, 288, 1   ; Enemy 4
+    dc.w    1, 7, 4, 112, 64, 96, 144, 1   ; Enemy 1
+    dc.w    3, 14, 5, 224, 80, 208, 224, 1   ; Enemy 2
+    dc.w    2, 3, 14, 48, 224, 0, 96, 2   ; Enemy 3
+    dc.w    1, 7, 15, 112, 240, 96, 240, 1   ; Enemy 4
+    dc.w    2, 12, 22, 192, 352, 144, 240, 2   ; Enemy 5
+    dc.w    3, 8, 23, 128, 368, 128, 288, 1   ; Enemy 6
     dc.w    $ffff                       ; End of list marker
 
 ;------------------------------------------------------------------------------
@@ -96,13 +98,14 @@ Level_06_EnemyList:
 ; Format: Type (w), Col (w), Row (w), SpawnX (w), SpawnY (w), Res1 (w), Res2 (w), Res3 (w)
 ;   Type: 1=BUNNY, 2=PUPPY, 3=KITTEN, 4=DUCKLING, 5=CHICK
 ;------------------------------------------------------------------------------
-Level_06_FriendCount:     dc.w    5
+Level_06_FriendCount:     dc.w    6
 Level_06_FriendList:
     dc.w    3, 3, 4, 48, 64, 0, 0, 0   ; Friend 1: DUCKLING
     dc.w    3, 18, 5, 288, 80, 0, 0, 0   ; Friend 2: DUCKLING
     dc.w    3, 18, 15, 288, 240, 0, 0, 0   ; Friend 3: DUCKLING
     dc.w    3, 2, 19, 32, 304, 0, 0, 0   ; Friend 4: DUCKLING
     dc.w    3, 18, 23, 288, 368, 0, 0, 0   ; Friend 5: DUCKLING
+    dc.w    3, 13, 38, 208, 608, 0, 0, 0   ; Friend 6: FRIEND_6
     dc.w    $ffff                       ; End of list marker
 
 ;------------------------------------------------------------------------------
@@ -118,35 +121,39 @@ Level_06_BlockList:
 ; Ladder Zones
 ; Format: ColStart (w), ColEnd (w), RowStart (w), RowEnd (w)
 ;------------------------------------------------------------------------------
-Level_06_LadderCount:     dc.w    5
+Level_06_LadderCount:     dc.w    6
 Level_06_LadderList:
     dc.w    3, 3, 20, 23   ; Ladder 1 (x=48, y=320, w=16, h=64)
     dc.w    5, 5, 5, 10   ; Ladder 2 (x=80, y=80, w=16, h=96)
-    dc.w    8, 8, 11, 15   ; Ladder 3 (x=128, y=176, w=16, h=80)
-    dc.w    15, 15, 6, 10   ; Ladder 4 (x=240, y=96, w=16, h=80)
-    dc.w    16, 16, 11, 23   ; Ladder 5 (x=256, y=176, w=16, h=208)
+    dc.w    5, 5, 24, 35   ; Ladder 3 (x=80, y=384, w=16, h=192)
+    dc.w    8, 8, 11, 15   ; Ladder 4 (x=128, y=176, w=16, h=80)
+    dc.w    15, 15, 6, 10   ; Ladder 5 (x=240, y=96, w=16, h=80)
+    dc.w    16, 16, 11, 23   ; Ladder 6 (x=256, y=176, w=16, h=208)
     dc.w    $ffff                       ; End of list marker
 
 ;------------------------------------------------------------------------------
 ; Solid Platform Zones
 ; Format: ColStart (w), ColEnd (w), RowStart (w), RowEnd (w)
 ;------------------------------------------------------------------------------
-Level_06_SolidCount:      dc.w    14
+Level_06_SolidCount:      dc.w    17
 Level_06_SolidList:
     dc.w    2, 4, 5, 5   ; Solid 1 (x=32, y=80, w=48, h=16)
     dc.w    6, 9, 5, 5   ; Solid 2 (x=96, y=80, w=64, h=16)
     dc.w    13, 14, 6, 6   ; Solid 3 (x=208, y=96, w=32, h=16)
     dc.w    16, 18, 6, 6   ; Solid 4 (x=256, y=96, w=48, h=16)
-    dc.w    2, 7, 11, 11   ; Solid 5 (x=32, y=176, w=96, h=16)
+    dc.w    0, 7, 11, 11   ; Solid 5 (x=0, y=176, w=128, h=16)
     dc.w    9, 11, 11, 11   ; Solid 6 (x=144, y=176, w=48, h=16)
     dc.w    15, 15, 11, 11   ; Solid 7 (x=240, y=176, w=16, h=16)
     dc.w    6, 15, 16, 16   ; Solid 8 (x=96, y=256, w=160, h=16)
     dc.w    17, 18, 16, 16   ; Solid 9 (x=272, y=256, w=32, h=16)
     dc.w    2, 2, 20, 20   ; Solid 10 (x=32, y=320, w=16, h=16)
     dc.w    4, 6, 20, 20   ; Solid 11 (x=64, y=320, w=48, h=16)
-    dc.w    0, 6, 24, 24   ; Solid 12 (x=0, y=384, w=112, h=16)
-    dc.w    8, 19, 24, 24   ; Solid 13 (x=128, y=384, w=192, h=16)
-    dc.w    7, 7, 25, 25   ; Solid 14 (x=112, y=400, w=16, h=16)
+    dc.w    0, 4, 24, 24   ; Solid 12 (x=0, y=384, w=80, h=16)
+    dc.w    6, 6, 24, 24   ; Solid 13 (x=96, y=384, w=16, h=16)
+    dc.w    8, 19, 24, 24   ; Solid 14 (x=128, y=384, w=192, h=16)
+    dc.w    7, 7, 25, 25   ; Solid 15 (x=112, y=400, w=16, h=16)
+    dc.w    3, 8, 36, 36   ; Solid 16 (x=48, y=576, w=96, h=16)
+    dc.w    9, 14, 39, 39   ; Solid 17 (x=144, y=624, w=96, h=16)
     dc.w    $ffff                       ; End of list marker
 
 ;------------------------------------------------------------------------------
@@ -177,9 +184,10 @@ Level_06_BridgeList:
 ; Oxygen Refills Table
 ; Format: Col (w), Row (w), PixelX (w), PixelY (w), TileId (w), Reserved (3 words)
 ;------------------------------------------------------------------------------
-Level_06_OxygenCount:     dc.w    1
+Level_06_OxygenCount:     dc.w    2
 Level_06_OxygenList:
-    dc.w    10, 15, 160, 240, 46, 0, 0, 0   ; Oxygen Refill 1
+    dc.w    2, 4, 32, 64, 46, 0, 0, 0   ; Oxygen Refill 1
+    dc.w    4, 19, 64, 304, 46, 0, 0, 0   ; Oxygen Refill 2
     dc.w    $ffff                       ; End of list marker
 
 ;------------------------------------------------------------------------------
@@ -240,7 +248,7 @@ Level_06_Def:
     dc.l    LevelMod                    ; BGM ProTracker MOD pointer
 
     ; --- Geometry & Binary Maps ---
-    dc.w    20, 26                      ; Map width, height in tiles
+    dc.w    20, 43                      ; Map width, height in tiles
     dc.l    Level_06_BackgroundMap      ; Background layer binary pointer (0 if none)
     dc.l    Level_06_PlatformMap        ; Platform layer binary pointer (0 if none)
     dc.l    Level_06_LadderMap          ; Ladder layer binary pointer (0 if none)
@@ -251,7 +259,7 @@ Level_06_Def:
     dc.l    Level_06_GameMap            ; 1D collision GameMap binary pointer
 
     ; --- Camera Bounds & Margins ---
-    dc.w    0, 216                      ; MinCameraY, MaxCameraY
+    dc.w    0, 472                      ; MinCameraY, MaxCameraY
     dc.w    216                         ; InitialCameraY
     dc.w    16, 176                     ; CamMarginTop, CamMarginBottom
 

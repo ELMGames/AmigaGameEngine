@@ -16,8 +16,8 @@
  <tileset firstgid="43" source="../../graphics/tiles/tileset-ladders.tsx"/>
  <tileset firstgid="45" source="../../graphics/tiles/tileset-entities.tsx"/>
  <tileset firstgid="47" source="../../graphics/enemies/Enemies.tsx"/>
- <tileset firstgid="79" source="../../graphics/animals/Friends.tsx"/>
- <tileset firstgid="91" source="../../graphics/player/Player.tsx"/>
+ <tileset firstgid="64" source="../../graphics/animals/Friends.tsx"/>
+ <tileset firstgid="76" source="../../graphics/player/Player.tsx"/>
  <layer id="1" name="scenery" width="20" height="13">
   <data encoding="csv">
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -75,13 +75,13 @@
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,51,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-0,0,91,0,0,0,0,0,0,0,0,0,0,0,0,0,0,87,0,0,
+0,0,76,0,0,0,0,0,0,0,0,0,0,0,0,0,0,72,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 </data>

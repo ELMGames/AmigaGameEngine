@@ -398,15 +398,10 @@ ATTR_LADDER              = 2       ; climbable ladder
 ATTR_HAZARD              = 3       ; hazard / death / spikes
 ATTR_PASSTHROUGH         = 4       ; one-way platform (can jump up through)
 
-; Enemy Type Identifiers (from enemies-spritesheet.png)
-ENEMY_1_SLIME_CYAN       = 1       ; Cyan Bouncing Slime (Ground Patrol)
-ENEMY_2_SLIME_RED        = 2       ; Red Magma Slime (Ground Patrol)
-ENEMY_3_WASP_FLY         = 3       ; Flying Wasp / Bee (Air Patrol)
-ENEMY_4_BAT_RED          = 4       ; Red Gargoyle Bat (Air / Dive Patrol)
-ENEMY_5_CYCLOPS_GREEN    = 5       ; Green Horned Cyclops (Ground Patrol)
-ENEMY_6_OCTO_PURPLE      = 6       ; Purple Floating Octo-pod (Air Float)
-ENEMY_7_SNAIL_SHELL      = 7       ; Armored Snail (Ground Patrol)
-ENEMY_8_GHOST_BLUE       = 8       ; Blue Drip Ghost / Spore (Air Float)
+; Enemy Type Identifiers (from enemies_16x16.png - 3 enemies)
+ENEMY_1_MUSHROOM_HOP      = 1       ; Mushroom Sporeling (Ground Patrol)
+ENEMY_2_HORNET_FLY        = 2       ; Buzzing Hornet (Air Patrol)
+ENEMY_3_HEDGEHOG_SCUTTLE  = 3       ; Spiky Hedgehog (Ground Patrol)
 
 ENEMY_SHEET_BYTES        = 8       ; 64px wide / 8 = 8 bytes per bitplane row
 ENEMY_FRAME_WIDTH        = 16      ; 16px wide

@@ -700,15 +700,15 @@ GameTilesMsk:
     even
 
 EnemySpritesRaw:
-    incbin     "assets/graphics/enemies/enemies_64x128.raw"
+    incbin     "assets/graphics/enemies/enemies_64x48.raw"
     even
 
 EnemySpritesWhiteRaw:
-    incbin     "assets/graphics/enemies/enemies_64x128_white.raw"
+    incbin     "assets/graphics/enemies/enemies_64x48_white.raw"
     even
 
 EnemySpritesMsk:
-    incbin     "assets/graphics/enemies/enemies_64x128.msk"
+    incbin     "assets/graphics/enemies/enemies_64x48.msk"
     even
 
 
