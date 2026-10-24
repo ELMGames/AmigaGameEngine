@@ -465,6 +465,7 @@ VBlankTick:
 
 ; --- Graphics & Blitter Routines ---
     include    "graphics/screenutils.asm"
+    include    "graphics/palette_fade.asm"
     include    "graphics/spritetools.asm"
     include    "graphics/hud_sprites.asm"
     include    "graphics/char_bltroutines.asm"

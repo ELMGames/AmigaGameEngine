@@ -292,7 +292,6 @@ UndoMove:
     clr.w       Actor_HasFalled(a1)
     clr.w       Actor_ImpactTick(a1)
     clr.w       Actor_CloudTick(a1)
-    clr.w       Actor_DirtTick(a1)
     clr.w       Actor_Delta(a1)
     clr.w       Actor_FallY(a1)
     move.w      #1,Actor_Dirty(a1)
@@ -316,7 +315,6 @@ UndoMove:
     clr.w       PlayerMoved(a5)
     clr.w       FallenActorsCount(a5)
     clr.w       CloudActorsCount(a5)
-    clr.w       DirtActorsCount(a5)
     clr.w       LevelComplete(a5)
     clr.w       LevelCompleteHold(a5)
     clr.w       PlayerDrowning(a5)
@@ -421,7 +419,7 @@ UndoMove:
 ; array may be inconsistent (dead actors previously removed by CleanActors, or
 ; restored actors that never appear).  This routine rebuilds it from scratch.
 ;
-; Scans all MAX_ACTORS slots in Actors[], adding live actors (Status != 0) to
+; Scans all TotalActorCount (up to MAX_ACTIVE_CRATES) slots in Actors[], adding live actors (Status != 0) to
 ; ActorList, then sorts by Y via SortActors.
 ;
 ; On entry: a5 = Variables base

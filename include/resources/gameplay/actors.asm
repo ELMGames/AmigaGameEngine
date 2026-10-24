@@ -4,14 +4,12 @@
 ; actors.asm  -  Actor Initialisation, Management and Drawing
 ;==============================================================================
 ;
-; An "actor" is any game object that occupies a tile cell and can move, be
-; killed, or animate.  This includes:
-;   - Enemy falling  (BLOCK_ENEMYFALL  = gravity-affected enemy)
-;   - Enemy floating (BLOCK_ENEMYFLOAT = gravity-immune enemy)
-;   - Pushable block (BLOCK_PUSH       = can be slid by the player)
-;   - Player         (single player character - special initialisation path)
+; In this engine, an "actor" is a pushable crate / interactive block (BLOCK_PUSH)
+; that occupies a tile cell, can be slid by the player, and falls under gravity.
+; (Enemies, animal friends, and oxygen bottles use dedicated sub-system pools).
 ;
-; Actor data lives in the flat Actors[] array (Actor_Sizeof bytes per slot).
+; Actor data lives in the flat Actors[] array (Actor_Sizeof bytes per slot,
+; MAX_ACTIVE_CRATES = 16 slots maximum).
 ; The ActorList[] array holds pointers into Actors[], sorted by Y position
 ; (largest Y drawn last = appears on top).
 ;
@@ -46,8 +44,8 @@ InitGameObjects:
 
     ; Zero the entire actor pool before use
     lea         Actors(a5),a0              ; start of Actors[], not ActorList
-    move.l      #Actor_Sizeof*MAX_ACTORS,d7
-    bsr         TurboClear                 ; clear Actor_Sizeof * MAX_ACTORS bytes
+    move.l      #Actor_Sizeof*MAX_ACTIVE_CRATES,d7
+    bsr         TurboClear                 ; clear Actor_Sizeof * MAX_ACTIVE_CRATES bytes
 
     ; Walk the GameMap and initialise an actor for each cell
     lea         GameMap(a5),a0             ; a0 -> start of live game map
@@ -91,7 +89,7 @@ InitGameObjects:
 ;   BLOCK_LADDER     (1) -> InitDummy   (ladders are purely graphical, not actors)
 ;   BLOCK_ENEMYFALL  (2) -> InitEnemyFall
 ;   BLOCK_PUSH       (3) -> InitPushBlock
-;   BLOCK_DIRT       (4) -> InitDirt
+;   (unused slot)    (4) -> InitDummy
 ;   BLOCK_SOLID      (5) -> InitDummy
 ;   BLOCK_ENEMYFLOAT (6) -> InitEnemyFloat
 ;   BLOCK_PLAYERSTART(7) -> InitPlayer
@@ -105,11 +103,11 @@ InitObject:
     dc.w        InitDummy-.i               ; BLOCK_LADDER      = 1
     dc.w        InitEnemyFall-.i           ; BLOCK_ENEMYFALL   = 2
     dc.w        InitPushBlock-.i           ; BLOCK_PUSH        = 3
-    dc.w        InitDirt-.i                ; BLOCK_DIRT        = 4
+    dc.w        InitDummy-.i               ; (unused)          = 4
     dc.w        InitDummy-.i               ; BLOCK_SOLID       = 5
     dc.w        InitEnemyFloat-.i          ; BLOCK_ENEMYFLOAT  = 6
     dc.w        InitPlayer-.i              ; BLOCK_PLAYERSTART = 7
-    dc.w        InitDummy-.i               ; reserved slot     = 8
+    dc.w        InitDummy-.i               ; (unused)          = 8
     dc.w        InitDummy-.i               ; BLOCK_PLAYERLADDER= 9  (never in level data)
 
 
@@ -121,49 +119,6 @@ InitDummy:
     rts
 
 
-;==============================================================================
-; InitDirt  -  Create an actor for a dirt block
-;
-; Dirt blocks come in 4 graphical variants depending on whether the blocks
-; immediately to the left and right are also dirt (for seamless joins):
-;
-;   Tile variant lookup table at .add:
-;     index 0 (no neighbours)   -> TILE_DIRTA + 0  = TILE_DIRTA
-;     index 1 (right neighbour) -> TILE_DIRTA + 1  = TILE_DIRTB
-;     index 2 (left neighbour)  -> TILE_DIRTA + 3  = TILE_DIRTD  (NOTE: .add[2]=3)
-;     index 3 (both neighbours) -> TILE_DIRTA + 2  = TILE_DIRTC  (NOTE: .add[3]=2)
-;
-; The adjacency check uses (a0) for the CURRENT cell (after GetActorSlot advances a0)
-; and offsets from the original map pointer for neighbours.  Relies on a0 still
-; pointing to the current cell in GameMap at call time.
-;
-; Actor_Static is set to 1 - dirt blocks are drawn once into DisplayScreen
-; and never animated (no need to update them each frame).
-;==============================================================================
-
-InitDirt:
-    bsr         GetActorSlot               ; allocate a slot; a3 -> new actor, a0 unchanged
-
-    ; Determine which dirt variant tile to use based on neighbours
-    moveq       #0,d0
-    cmp.b       #BLOCK_DIRT,(a0)           ; is the cell AFTER current also dirt (right neighbour)?
-    bne         .notright
-    bset        #0,d0                      ; bit 0 set = right neighbour present
-.notright
-    cmp.b       #BLOCK_DIRT,-2(a0)         ; is the cell TWO before current also dirt (left neighbour)?
-                                           ; (a0 was advanced past the current cell by GetActorSlot)
-    bne         .notleft
-    bset        #1,d0                      ; bit 1 set = left neighbour present
-.notleft
-    ; Look up tile variant: .add maps (right|left) flags to tile index offset
-    move.b      .add(pc,d0.w),d0           ; d0 = tile offset (0, 1, 2 or 3)
-    add.w       #TILE_DIRTA,d0             ; d0 = final tile index
-    move.w      d0,Actor_SpriteOffset(a3)  ; store tile to draw
-    move.w      #1,Actor_Static(a3)        ; dirt is static (drawn once, not animated)
-    rts
-
-.add
-    dc.b        0,1,3,2     ; index = (leftBit<<1 | rightBit) -> tile offset within DIRTA..DIRTD
 
 
 ;==============================================================================
@@ -301,14 +256,13 @@ InitPlayer:
 ;   a3 = pointer to the newly allocated actor structure
 ;   ActorCount(a5) incremented by 1
 ;
-; Crashes to FUCK if the actor pool is full (should never happen with
-; MAX_ACTORS = MAP_SIZE = 88 slots for 88 map cells).
+; Handles actor allocation with overflow check against MAX_ACTIVE_CRATES (16 slots).
 ;==============================================================================
 
 GetActorSlot:
     move.w      ActorCount(a5),d5          ; d5 = current count (= index of new slot)
-    cmp.w       #MAX_ACTORS,d5             ; pool full?
-    bcc         ACTOR_POOL_OVERFLOW         ; if count >= MAX_ACTORS, fatal error
+    cmp.w       #MAX_ACTIVE_CRATES,d5      ; pool full?
+    bcc         ACTOR_POOL_OVERFLOW         ; if count >= MAX_ACTIVE_CRATES, fatal error
 
     addq.w      #1,ActorCount(a5)          ; increment actor count
 
@@ -349,8 +303,8 @@ GetActorSlot:
 ;==============================================================================
 ; ACTOR_POOL_OVERFLOW  -  Fatal error: actor pool has been exhausted
 ;
-; Should never be reached in normal play (MAX_ACTORS = MAP_SIZE = 88,
-; and no level can contain more actors than it has map cells).
+; Should never be reached in normal play (MAX_ACTIVE_CRATES = 16,
+; peak campaign crate count across Levels 1-6 is 2 in Levels 3 & 4).
 ; Paints COLOR00 solid red and prints a diagnostic string to DisplayScreen,
 ; then halts.
 ;==============================================================================
@@ -374,7 +328,7 @@ ACTOR_POOL_OVERFLOW:
 ; blit each actor's sprite tile onto DisplayScreen at its current pixel
 ; position.  Actors with Actor_Dirty=0 are skipped (tile already correct).
 ;
-; "Static" actors (dirt, push blocks) are drawn here during level init and
+; "Static" actors (push blocks) are drawn here during level init and
 ; remain until explicitly cleared by RestoreBackgroundTile.
 ; Moving actors (enemies) are also blitted here when they arrive at a new tile.
 ;
@@ -500,7 +454,7 @@ ClearMovedActors:
 ;==============================================================================
 ; CleanActors  -  Remove dead actors from the ActorList and update ActorCount
 ;
-; After players kill actors (PlayerKillActor / PlayerKillDirt), their
+; After players destroy actors (PlayerKillActor), their
 ; Actor_Status is set to 0.  This routine compacts the ActorList by removing
 ; those zero-status pointers and updating ActorCount to the new live count.
 ;

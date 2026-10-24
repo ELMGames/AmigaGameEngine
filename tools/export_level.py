@@ -45,7 +45,6 @@ BLOCK_EMPTY       = 0
 BLOCK_LADDER      = 1
 BLOCK_ENEMYFALL   = 2
 BLOCK_PUSH        = 3
-BLOCK_DIRT        = 4
 BLOCK_SOLID       = 5
 BLOCK_ENEMYFLOAT  = 6
 BLOCK_PLAYERSTART = 7
@@ -109,9 +108,9 @@ TILESET_TO_COMPACT = {
     ("tileset-platforms", 5): 12,  # Stone Mid (src 19)
     ("tileset-platforms", 6): 13,  # Stone Right (src 20)
     ("tileset-platforms", 7): 15,  # Platform Ledge (src 29)
-    ("tileset-platforms", 8): 8,   # Dirt Mid / Bedrock (src 14)
-    ("tileset-platforms", 9): 7,   # Dirt Corner (src 12)
-    ("tileset-platforms", 10): 9,  # Dirt Variant (src 15)
+    ("tileset-platforms", 8): 8,   # Soil Mid / Bedrock (src 14)
+    ("tileset-platforms", 9): 7,   # Soil Corner (src 12)
+    ("tileset-platforms", 10): 9,  # Soil Variant (src 15)
     ("tileset-platforms", 11): 10, # Earth Variant (src 17)
     ("tileset-platforms", 12): 5,  # Grass Variant 1 (src 7)
     ("tileset-platforms", 13): 6,  # Grass Variant 2 (src 9)
@@ -755,6 +754,18 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
 
     print(f"    Map dimensions: {width}x{height} tiles ({width * tile_w}x{height * tile_h} px), tile size: {tile_w}x{tile_h}")
 
+    MIN_MAP_ROWS = 13  # Minimum 13 rows (208 px) to cover the 200/216 px display window
+    MAX_MAP_ROWS = 50  # Maximum rows allowed by Chip RAM screen buffer budget (MAX_SCREEN_ROWS in const.asm)
+
+    if height < MIN_MAP_ROWS:
+        raise ValueError(
+            f"Level map '{tmx_path}' height ({height} rows) is below minimum of {MIN_MAP_ROWS} rows (208 px) required to fill the display window!"
+        )
+    if height > MAX_MAP_ROWS:
+        raise ValueError(
+            f"Level map '{tmx_path}' height ({height} rows) exceeds maximum of {MAX_MAP_ROWS} rows budgeted in Chip RAM!"
+        )
+
     # Parse map-level custom properties with sensible defaults
     map_props = parse_properties(root)
 
@@ -864,7 +875,6 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
     solids = []
     ladders = []
     pushes = []
-    dirts = []
     triggers = []
     hazards = []
     bridges = []
@@ -1209,13 +1219,6 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
                         "row_end": p_row
                     })
 
-            elif "dirt" in tag or "dirt" in name_lower or "breakable" in tag:
-                dirts.append({
-                    "col_start": col_start,
-                    "col_end": col_end,
-                    "row_start": row_start,
-                    "row_end": row_end,
-                })
 
             elif "hazard" in tag or "spike" in tag or "lava" in tag or "hazard" in name_lower:
                 damage = int(props.get("damage", 1))
@@ -1355,15 +1358,11 @@ def export_tmx(tmx_file: str, out_dir: str = None, asm_out: str = None, prefix: 
                 else:
                     c += 1
 
-    # 5. Push, Dirt
+    # 5. Push Blocks
     for p in pushes:
         for r in range(p["row_start"], p["row_end"] + 1):
             for c in range(p["col_start"], p["col_end"] + 1):
                 gamemap[r * width + c] = BLOCK_PUSH
-    for d in dirts:
-        for r in range(d["row_start"], d["row_end"] + 1):
-            for c in range(d["col_start"], d["col_end"] + 1):
-                gamemap[r * width + c] = BLOCK_DIRT
 
     # 6. Bottom boundary solid floor
     for c in range(width):

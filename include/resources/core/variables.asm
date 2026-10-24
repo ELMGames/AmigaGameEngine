@@ -83,17 +83,17 @@ SpriteYOffset:        rs.w    1   ; raster line of display top: WINDOW_Y_START (
 IsPAL:                rs.w    1   ; 1 = PAL system, 0 = NTSC — set once by DetectNTSC, read by AudioInit and VHS_Init
 
 ;------------------------------------------------------------------------------
-; Actor pool
+; Crate / Interactive Block Actor pool
 ;
-; ActorCount - number of active actors currently in the pool (updated by
-;              CleanActors after kills).
+; ActorCount - number of active crate actors currently in the pool (updated by
+;              CleanActors after destruction).
 ; Actors     - the flat actor structure array.  Actor_Sizeof bytes per slot,
-;              MAX_ACTORS slots = MAP_SIZE = 88 slots maximum.
+;              MAX_ACTIVE_CRATES slots = 16 slots maximum (peak campaign load: 2).
 ;              Always accessed via the sorted ActorList pointer array.
 ;------------------------------------------------------------------------------
-ActorCount:           rs.w    1   ; number of live actors
-TotalActorCount:      rs.w    1   ; total allocated actor slots in level (0..MAX_ACTORS)
-Actors:               rs.b    Actor_Sizeof*MAX_ACTORS  ; actor pool (88 * Actor_Sizeof bytes)
+ActorCount:           rs.w    1   ; number of live crate actors
+TotalActorCount:      rs.w    1   ; total allocated actor slots in level (0..MAX_ACTIVE_CRATES)
+Actors:               rs.b    Actor_Sizeof*MAX_ACTIVE_CRATES  ; crate actor pool (16 * Actor_Sizeof bytes)
 
 ;------------------------------------------------------------------------------
 ; Timing and input
@@ -152,7 +152,7 @@ DebugMode:        rs.w    1   ; 0=off  1=debug mode (F5)  2=debug+raster bar (F3
 ;                     ActorFallAll, processed by ActionFallActors each frame.
 ; FallenActorsCount - number of valid entries in FallenActors.
 ;------------------------------------------------------------------------------
-FallenActors:         rs.l    MAP_SIZE    ; up to 88 pointers (one per map cell)
+FallenActors:         rs.l    MAX_ACTIVE_CRATES ; up to 16 pointers for falling blocks
 FallenActorsCount:    rs.w    1           ; number of currently-falling actors
 
 ;------------------------------------------------------------------------------
@@ -165,7 +165,7 @@ FallenActorsCount:    rs.w    1           ; number of currently-falling actors
 ;                closer to the bottom are drawn last (i.e. on top).
 ;------------------------------------------------------------------------------
 ActorSlotPtr:         rs.l    1           ; current write pointer into ActorList
-ActorList:            rs.l    MAP_SIZE    ; sorted actor pointer array (88 entries max)
+ActorList:            rs.l    MAX_ACTIVE_CRATES ; sorted actor pointer array (16 entries max)
 
 
 ;------------------------------------------------------------------------------
@@ -177,20 +177,8 @@ ActorList:            rs.l    MAP_SIZE    ; sorted actor pointer array (88 entri
 ; CloudActorsCount - number of valid entries in CloudActors (never compacted;
 ;                   entries with CloudTick=0 are skipped by the processor).
 ;------------------------------------------------------------------------------
-CloudActors:          rs.l    MAP_SIZE    ; up to 88 cloud animation actor pointers
+CloudActors:          rs.l    MAX_ACTIVE_CRATES ; up to 16 cloud animation actor pointers
 CloudActorsCount:     rs.w    1           ; number of actors ever added (reset at level load)
-
-;------------------------------------------------------------------------------
-; Dirt break animation actor list
-;
-; DirtActors      - array of actor pointers for actors currently playing a
-;                  dirt break animation (Actor_DirtTick > 0).  Filled by
-;                  PlayerKillActor; processed by ActionDirtActors each frame.
-; DirtActorsCount - number of valid entries in DirtActors (never compacted;
-;                  entries with DirtTick=0 are skipped by the processor).
-;------------------------------------------------------------------------------
-DirtActors:           rs.l    MAP_SIZE    ; up to 88 dirt animation actor pointers
-DirtActorsCount:      rs.w    1           ; number of actors ever added (reset at level load)
 
 
 ;------------------------------------------------------------------------------
@@ -228,6 +216,16 @@ WipeTileX:            rs.b    WALL_PAPER_SIZE
 WipeTileY:            rs.b    WALL_PAPER_SIZE
                       rs.w    0                 ; alignment pad to even boundary (SnapshotHead must be word-aligned)
 
+; --- Palette Fade Subsystem State -------------------------------------------
+PalFadeActive:        rs.w    1               ; 1 if fade in progress, 0 if idle
+PalFadeSpeed:         rs.w    1               ; frame period between channel steps (1, 2, 4)
+PalFadeSpeedCount:    rs.w    1               ; frame countdown timer
+PalFadeStep:          rs.w    1               ; total steps executed
+PalFadeCopper:        rs.l    1               ; pointer to active Copper list palette block (cpPal)
+QuitFadeActive:       rs.w    1               ; 1 if ESC quit-to-title fade is active
+PalFadeWork:          rs.w    32              ; working copy of 32 colors ($0RGB)
+PalFadeTarget:        rs.w    32              ; target copy of 32 colors ($000 for fade-out)
+
 ;------------------------------------------------------------------------------
 ; Undo / rewind snapshot buffer
 ;
@@ -244,11 +242,11 @@ SnapshotCount:        rs.w    1
 ; Actor sort scratch buffer
 ;
 ; ActorSortBuf - temporary longword array used exclusively by SortActors during
-;                the scatter pass of the Y-counting sort.  Holds up to MAX_ACTORS
+;                the scatter pass of the Y-counting sort.  Holds up to MAX_ACTIVE_CRATES
 ;                actor pointers while the sorted result is being built, then the
 ;                caller copies them back to ActorList.  Not valid between calls.
 ;------------------------------------------------------------------------------
-ActorSortBuf:         rs.l    MAP_SIZE    ; MAP_SIZE = MAX_ACTORS = 88 longwords (352 bytes)
+ActorSortBuf:         rs.l    MAX_ACTIVE_CRATES ; 16 longwords (64 bytes)
 
 ;------------------------------------------------------------------------------
 ; Level complete screen state
@@ -307,6 +305,8 @@ GCStarY:              rs.w    GC_NUM_STARS    ; pixel Y positions (word, unsigne
 GCStarRand:           rs.w    1               ; Galois LFSR state
 GCFrameTick:          rs.w    1               ; frame counter for twinkle phase
 GCDuckPrevY:          rs.w    1               ; previous duckling Y position for bobbing erase
+GCFadeActive:         rs.w    1               ; 1 if fade out active, 0 if normal running
+GCFadeStep:           rs.w    1               ; throttle frame countdown for fade step
 
 ;------------------------------------------------------------------------------
 ; Tilemap Engine state (tilemap.asm)

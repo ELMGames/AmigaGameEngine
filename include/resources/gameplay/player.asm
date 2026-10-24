@@ -857,82 +857,6 @@ ActionCloudActors:
 
 
 ;==============================================================================
-; ActionDirtActors  -  Animate all active dirt block break animations
-;
-; Called every frame from GameRun, independent of the main action state.
-; Iterates DirtActors[0..DirtActorsCount-1]; actors with DirtTick=0 are
-; skipped (already done).
-;
-; For each actor with Actor_DirtTick > 0:
-;   1. Compute frame index = (Actor_DirtTick - 1) / DIRT_FRAME_TICKS
-;   2. If frame >= DIRT_FRAMES: RestoreBackgroundTile, clear Actor_DirtTick.
-;   3. Otherwise: RestoreBackgroundTile, DrawSprite(dirt frame), increment tick.
-;
-; Registers: a2=DirtActors pointer, a3=actor struct, d7=loop counter
-;==============================================================================
-
-ActionDirtActors:
-    move.w      DirtActorsCount(a5),d7
-    subq.w      #1,d7
-    bmi         .exit                   ; no dirt actors registered
-
-    lea         DirtActors(a5),a2       ; a2 -> dirt actor pointer array
-
-.loop
-    move.l      (a2)+,a3                ; a3 -> actor struct
-
-    tst.w       Actor_DirtTick(a3)      ; animation active?
-    beq         .next                   ; tick=0: already done, skip
-
-    ; Compute frame index: (tick - 1) >> LOG2_DIRT_FRAME_TICKS
-    moveq       #0,d0
-    move.w      Actor_DirtTick(a3),d0
-    subq.w      #1,d0                   ; 0-based tick (0..DIRT_TOTAL_TICKS-1)
-    lsr.w       #LOG2_DIRT_FRAME_TICKS,d0  ; d0.w = frame index (0..DIRT_FRAMES-1+)
-
-    cmp.w       #DIRT_FRAMES,d0
-    bcc         .dirt_done              ; frame >= DIRT_FRAMES: all frames shown
-
-    ; Save frame index before RestoreBackgroundTile clobbers d0
-    move.w      d0,d3                   ; d3 = frame index
-
-    ; --- Erase previous dirt frame ---
-    move.w      Actor_X(a3),d0
-    move.w      Actor_Y(a3),d1
-    bsr         RestoreBackgroundTile
-
-    ; Build sprite index from saved frame (d3 free again after d2 set)
-    move.w      d3,d2
-    add.w       #SPRITE_DIRT_A,d2       ; absolute sprite sheet index
-
-    ; Pixel X = Actor_X * 16, Pixel Y = Actor_Y * 24
-    move.w      Actor_X(a3),d0
-    lsl.w       #4,d0
-
-    move.w      Actor_Y(a3),d1
-    move.w      d1,d3
-    lsl.w       #4,d1
-    lsl.w       #3,d3
-    add.w       d3,d1
-    bsr         DrawSprite
-
-    addq.w      #1,Actor_DirtTick(a3)
-    bra         .next
-
-.dirt_done
-    move.w      Actor_X(a3),d0
-    move.w      Actor_Y(a3),d1
-    bsr         RestoreBackgroundTile   ; erase final dirt frame; auto-dirty schedules actor redraw
-    clr.w       Actor_DirtTick(a3)
-
-.next
-    dbra        d7,.loop
-
-.exit
-    rts
-
-
-;==============================================================================
 ; ActionMove  -  Smooth tile-to-tile movement animation (ACTION_MOVE state)
 ;
 ; Each frame:
@@ -1232,7 +1156,7 @@ PlayerFallLogic:
     beq.s       .air_below            ; empty air: keep falling
     cmp.b       #BLOCK_PLAYERSTART,d2
     beq.s       .air_below            ; player spawn marker: air, keep falling
-    bra         .found                ; solid/ladder/dirt: found landing
+    bra         .found                ; solid/ladder: found landing
 .air_below:
     addq.w      #1,d3
     add.w       #WALL_PAPER_WIDTH,d1
@@ -1551,7 +1475,7 @@ PlayerShowWalkAnim:
 ;   BLOCK_LADDER      -> PlayerDoMove   (walk onto/off ladder)
 ;   BLOCK_ENEMYFALL   -> PlayerKillEnemy (kill the enemy)
 ;   BLOCK_PUSH        -> PlayerPushBlock (check if the block can be pushed)
-;   BLOCK_DIRT        -> PlayerKillDirt  (walk through dirt, destroying it)
+;   (unused slot 4)   -> PlayerNotMove  (wall: blocked)
 ;   BLOCK_SOLID       -> PlayerNotMove   (blocked by wall)
 ;   BLOCK_ENEMYFLOAT  -> PlayerKillEnemy (kill the floating enemy)
 ;   BLOCK_PLAYERSTART -> PlayerMoveEmpty (allow moving into player start / empty floor cells)
@@ -1569,11 +1493,11 @@ PlayerTryMove:
     dc.w        PlayerDoMove-.i       ; BLOCK_LADDER      = 1
     dc.w        PlayerKillEnemy-.i    ; BLOCK_ENEMYFALL   = 2
     dc.w        PlayerPushBlock-.i    ; BLOCK_PUSH        = 3
-    dc.w        PlayerKillDirt-.i     ; BLOCK_DIRT        = 4
+    dc.w        PlayerNotMove-.i      ; (unused)          = 4
     dc.w        PlayerNotMove-.i      ; BLOCK_SOLID       = 5
     dc.w        PlayerKillEnemy-.i    ; BLOCK_ENEMYFLOAT  = 6
     dc.w        PlayerMoveEmpty-.i    ; BLOCK_PLAYERSTART = 7  (empty/walkable in single player)
-    dc.w        PlayerNotMove-.i      ; block 8 (unused)  = 8
+    dc.w        PlayerNotMove-.i      ; (unused)          = 8
     dc.w        PlayerMoveLadder-.i   ; BLOCK_PLAYERLADDER= 9
     rts
 
@@ -1666,28 +1590,9 @@ PlayerMoveLadder:
 
 
 ;==============================================================================
-; PlayerKillDirt  -  Walk into and destroy a dirt block
-;
-; Dirt can only be destroyed by horizontal movement (not by descending into it).
-; If DirectionY is non-zero (moving vertically), the kill is blocked.
-; Otherwise: move normally AND kill the actor occupying that cell.
-;==============================================================================
-
-PlayerKillDirt:
-    tst.w       Player_DirectionY(a4)  ; vertical movement?
-    bne         .nokill                ; yes - can't destroy dirt by moving down into it
-    bsr         PlayerDoMove           ; standard move into the cell
-    bsr         PlayerKillActor        ; remove the dirt actor and clear its screen tile
-    bsr         CleanActors            ; compact actor list (remove dead slots)
-    bsr         SortActors             ; re-sort by Y for correct rendering order
-.nokill
-    rts
-
-
-;==============================================================================
 ; PlayerKillEnemy  -  Walk into and destroy an enemy
 ;
-; Enemies can only be killed by horizontal movement (same rule as dirt).
+; Enemies can only be killed by horizontal movement.
 ; Killing also triggers CleanActors (compact the actor list) and SortActors
 ; (re-sort by Y for correct draw order).
 ;==============================================================================
@@ -2111,30 +2016,16 @@ PlayerKillActor:
 
     ; Register type-specific death animation
     move.w      Actor_Type(a3),d2
-    cmp.w       #BLOCK_DIRT,d2
-    beq         .setup_dirt
     cmp.w       #BLOCK_ENEMYFALL,d2
-    beq         .setup_cloud
+    beq.s       .setup_cloud
     cmp.w       #BLOCK_ENEMYFLOAT,d2
-    bne         .skip_effects
+    bne.s       .skip_effects
 
-.setup_dirt
-    ; Add to DirtActors list (bounds-checked; max MAP_SIZE entries)
-    move.w      DirtActorsCount(a5),d2
-    cmp.w       #MAP_SIZE,d2
-    bge         .skip_effects           ; safety: pool full
-    lea         DirtActors(a5),a0
-    lsl.w       #2,d2                   ; byte offset = index * 4
-    move.l      a3,(a0,d2.w)            ; DirtActors[count] = a3
-    addq.w      #1,DirtActorsCount(a5)
-    move.w      #1,Actor_DirtTick(a3)   ; start dirt animation on tick 1
-    bra         .skip_effects
-
-.setup_cloud
-    ; Add to CloudActors list (bounds-checked; max MAP_SIZE entries)
+.setup_cloud:
+    ; Add to CloudActors list (bounds-checked; max MAX_ACTIVE_CRATES entries)
     move.w      CloudActorsCount(a5),d2
-    cmp.w       #MAP_SIZE,d2
-    bge         .skip_effects           ; safety: pool full
+    cmp.w       #MAX_ACTIVE_CRATES,d2
+    bge.s       .skip_effects           ; safety: pool full
     lea         CloudActors(a5),a0
     lsl.w       #2,d2                   ; byte offset = index * 4
     move.l      a3,(a0,d2.w)            ; CloudActors[count] = a3
@@ -2215,6 +2106,11 @@ RestoreBackgroundTile:
     move.l      a0,BLTAPT(a6)           ; source (NonDisplayScreen)
     move.l      a1,BLTDPT(a6)           ; dest (DisplayScreen)
     move.w      #(TILEMAP_TILE_HEIGHT*TILEMAP_TILE_PLANES<<6)|(TILEMAP_TILE_BYTES/2),BLTSIZE(a6) ; 64 lines x 1 word
+
+    POPM        d0-d2/a0-a1
+    bsr         TilemapSubmergeTile    ; apply water effect if restored tile is underwater
+    bsr         MarkTileDirty          ; auto-flag for end-of-frame actor/frozen-player redraw
+    rts
 
 .rbt_skip:
     POPM        d0-d2/a0-a1
@@ -2303,13 +2199,16 @@ PlayerGetNextBlock:
 
 
 ;==============================================================================
-; RestoreVacatedTile  -  Restore GameMap cell to BLOCK_LADDER or BLOCK_EMPTY
+; RestoreVacatedTile  -  Restore GameMap cell to BLOCK_LADDER, BLOCK_SOLID, or BLOCK_EMPTY
 ;
 ; Called when an actor (push block, falling actor, killed actor) or player
 ; vacates a tile cell in GameMap.
 ;
 ; Checks LevelDef_LadderMap: if the cell has a ladder tile in the ladder layer,
-; writes BLOCK_LADDER (1). Otherwise writes BLOCK_EMPTY (0).
+; writes BLOCK_LADDER (1).
+; Checks LevelDef_PlatformMap: if the cell has a platform tile in the platform layer,
+; writes BLOCK_SOLID (5).
+; Otherwise writes BLOCK_EMPTY (0).
 ;
 ; In:  d0.w = tile map offset (Row * WALL_PAPER_WIDTH + Col)
 ;      a0   = GameMap(a5) base pointer
@@ -2326,19 +2225,37 @@ RestoreVacatedTile:
     move.l      CurrentLevelDef(a5),d1
     beq.s       .rvt_empty
     movea.l     d1,a1
+
+    ; 1. Check ladder layer: if ladder tile present -> restore BLOCK_LADDER
     move.l      LevelDef_LadderMap(a1),d1
-    beq.s       .rvt_empty
+    beq.s       .rvt_check_platform
     movea.l     d1,a1
     move.w      d0,d1
     add.w       d1,d1                   ; d1 = offset * 2 (16-bit word entries)
     addq.w      #8,d1                   ; skip 8-byte width/height header
     tst.w       (a1,d1.w)               ; ladder layer has a tile at this cell?
-    beq.s       .rvt_empty
+    beq.s       .rvt_check_platform
     move.b      #BLOCK_LADDER,(a0,d0.w) ; cell has ladder -> restore BLOCK_LADDER!
     rts
 
+.rvt_check_platform:
+    ; 2. Check platform layer: if platform tile present -> restore BLOCK_SOLID
+    move.l      CurrentLevelDef(a5),d1
+    beq.s       .rvt_empty
+    movea.l     d1,a1
+    move.l      LevelDef_PlatformMap(a1),d1
+    beq.s       .rvt_empty
+    movea.l     d1,a1
+    move.w      d0,d1
+    add.w       d1,d1                   ; d1 = offset * 2 (16-bit word entries)
+    addq.w      #8,d1                   ; skip 8-byte width/height header
+    tst.w       (a1,d1.w)               ; platform layer has a tile at this cell?
+    beq.s       .rvt_empty
+    move.b      #BLOCK_SOLID,(a0,d0.w)  ; cell has platform -> restore BLOCK_SOLID!
+    rts
+
 .rvt_empty:
-    clr.b       (a0,d0.w)               ; no ladder -> restore BLOCK_EMPTY
+    clr.b       (a0,d0.w)               ; neither ladder nor platform -> restore BLOCK_EMPTY
 
 .rvt_exit:
     rts

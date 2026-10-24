@@ -328,23 +328,25 @@ TileSheetOffsetTable:
 
     even
 TileRowStrideTable:
-    ; Row 0..43 screen stride offsets (Row * 2560 bytes)
+    ; Row 0..50 screen stride offsets (Row * 2560 bytes)
     dc.l    0, 2560, 5120, 7680, 10240, 12800, 15360, 17920
     dc.l    20480, 23040, 25600, 28160, 30720, 33280, 35840, 38400
     dc.l    40960, 43520, 46080, 48640, 51200, 53760, 56320, 58880
     dc.l    61440, 64000, 66560, 69120, 71680, 74240, 76800, 79360
     dc.l    81920, 84480, 87040, 89600, 92160, 94720, 97280, 99840
-    dc.l    102400, 104960, 107520, 110080
+    dc.l    102400, 104960, 107520, 110080, 112640, 115200, 117760, 120320
+    dc.l    122880, 125440, 128000
 
     even
 MapRowOffsetTable:
-    ; Row 0..43 grid offsets (Row * 20 tiles)
+    ; Row 0..50 grid offsets (Row * 20 tiles)
     dc.w    0, 20, 40, 60, 80, 100, 120, 140
     dc.w    160, 180, 200, 220, 240, 260, 280, 300
     dc.w    320, 340, 360, 380, 400, 420, 440, 460
     dc.w    480, 500, 520, 540, 560, 580, 600, 620
     dc.w    640, 660, 680, 700, 720, 740, 760, 780
-    dc.w    800, 820, 840, 860
+    dc.w    800, 820, 840, 860, 880, 900, 920, 940
+    dc.w    960, 980, 1000
 
 TilemapDrawLayer:
     clr.w       d0                      ; StartRow = 0
@@ -2348,7 +2350,7 @@ TilemapEraseEnemy:
     move.l      a0,BLTAPT(a6)
     move.l      a1,BLTDPT(a6)
     move.w      #(ENEMY_FRAME_HEIGHT*TILEMAP_TILE_PLANES<<6)|2,BLTSIZE(a6) ; 64 lines x 2 words
-    rts
+    bra.s       .check_submerge
 
 .erase_1word:
     WAITBLIT
@@ -2360,6 +2362,24 @@ TilemapEraseEnemy:
     move.l      a0,BLTAPT(a6)
     move.l      a1,BLTDPT(a6)
     move.w      #(ENEMY_FRAME_HEIGHT*TILEMAP_TILE_PLANES<<6)|1,BLTSIZE(a6) ; 64 lines x 1 word
+
+.check_submerge:
+    move.w      WaterPixelY(a5),d2
+    bmi.s       .exit
+    move.w      ei_PrevY(a4),d1
+    move.w      d1,-(sp)
+    add.w       #ENEMY_FRAME_HEIGHT-1,d1
+    cmp.w       d2,d1
+    move.w      (sp)+,d1
+    blt.s       .exit
+    WAITBLIT
+    movea.l     a1,a0
+    move.w      ei_PrevX(a4),d0
+    move.w      d7,-(sp)
+    move.w      #ENEMY_FRAME_HEIGHT,d7
+    bsr         TilemapSubmergeActor
+    move.w      (sp)+,d7
+.exit:
     rts
 
 
@@ -2767,7 +2787,7 @@ TilemapEraseFriend:
     move.l      a0,BLTAPT(a6)
     move.l      a1,BLTDPT(a6)
     move.w      #(FRIEND_FRAME_HEIGHT*TILEMAP_TILE_PLANES<<6)|2,BLTSIZE(a6) ; 64 lines x 2 words
-    rts
+    bra.s       .check_submerge
 
 .erase_1word:
     WAITBLIT
@@ -2779,6 +2799,24 @@ TilemapEraseFriend:
     move.l      a0,BLTAPT(a6)
     move.l      a1,BLTDPT(a6)
     move.w      #(FRIEND_FRAME_HEIGHT*TILEMAP_TILE_PLANES<<6)|1,BLTSIZE(a6) ; 64 lines x 1 word
+
+.check_submerge:
+    move.w      WaterPixelY(a5),d2
+    bmi.s       .exit
+    move.w      fi_PrevY(a4),d1
+    move.w      d1,-(sp)
+    add.w       #FRIEND_FRAME_HEIGHT-1,d1
+    cmp.w       d2,d1
+    move.w      (sp)+,d1
+    blt.s       .exit
+    WAITBLIT
+    movea.l     a1,a0
+    move.w      fi_PrevX(a4),d0
+    move.w      d7,-(sp)
+    move.w      #FRIEND_FRAME_HEIGHT,d7
+    bsr         TilemapSubmergeActor
+    move.w      (sp)+,d7
+.exit:
     rts
 
 
@@ -3019,7 +3057,7 @@ TilemapErasePlayer:
 
     clr.w       Player_PrevDrawn(a4)    ; reset drawn flag
 
-    PUSHM       d2-d3/a0-a1
+    PUSHM       d2-d3/d7/a0-a1
 
     move.w      Player_PrevX(a4),d0
     move.w      Player_PrevY(a4),d1
@@ -3060,9 +3098,7 @@ TilemapErasePlayer:
     move.l      a0,BLTAPT(a6)
     move.l      a1,BLTDPT(a6)
     move.w      #(PLAYER_HEIGHT*PLAYER_PLANES<<6)|3,BLTSIZE(a6) ; 96 rows x 3 words
-
-    POPM        d2-d3/a0-a1
-    rts
+    bra.s       .check_submerge
 
 .erase_2word:
     ; --- 2-Word Wide Restore (32px aligned) ---
@@ -3077,7 +3113,27 @@ TilemapErasePlayer:
     move.l      a1,BLTDPT(a6)
     move.w      #(PLAYER_HEIGHT*PLAYER_PLANES<<6)|2,BLTSIZE(a6) ; 96 rows x 2 words
 
-    POPM        d2-d3/a0-a1
+.check_submerge:
+    ; Check if restored background needs water dither/wave effect
+    move.w      WaterPixelY(a5),d2
+    bmi.s       .erase_done             ; water inactive (< 0)
+
+    move.w      Player_ErasedY(a5),d1   ; top Y of erased box
+    move.w      d1,d3
+    add.w       #PLAYER_HEIGHT-1,d3     ; bottom Y of erased box
+    cmp.w       d2,d3
+    blt.s       .erase_done             ; bottom Y < WaterPixelY -> completely dry
+
+    WAITBLIT                            ; wait for background restore blit to finish
+    movea.l     a1,a0                   ; a0 = destination DisplayScreen pointer (at ErasedY and word column)
+    move.w      Player_ErasedX(a5),d0
+    ; d1 = Player_ErasedY(a5)
+    ; d2 = WaterPixelY(a5)
+    move.w      #PLAYER_HEIGHT,d7
+    bsr         TilemapSubmergeActor
+
+.erase_done:
+    POPM        d2-d3/d7/a0-a1
     rts
 
 .no_erase:
@@ -3219,6 +3275,9 @@ TilemapRestorePlayerOverlaps:
     move.w      #16,d2
     move.w      #16,d3
     bsr         TilemapStampForegroundOverBox
+    move.w      Actor_X(a3),d0
+    move.w      Actor_Y(a3),d1
+    bsr         TilemapSubmergeTile
     moveq       #1,d7
 
 .rpo_next_crate:
@@ -3260,6 +3319,9 @@ TilemapRestorePlayerOverlaps:
     move.w      #16,d2
     move.w      #16,d3
     bsr         TilemapStampForegroundOverBox
+    move.w      ox_Col(a4),d0
+    move.w      ox_Row(a4),d1
+    bsr         TilemapSubmergeTile
     moveq       #1,d7
 
 .rpo_next_oxygen:
@@ -3588,6 +3650,14 @@ TilemapDrawPlayer:
     ; player's bounding box to achieve layered depth (player walks behind foliage/pillars).
     bsr         TilemapStampForegroundOverPlayer
 
+    ; -------------------------------------------------------------------------
+    ; 8. Scenery Layer Stamp for Ladders (in front of Player BOB)
+    ; -------------------------------------------------------------------------
+    ; When climbing a ladder, re-blit any adjacent scenery tiles from LevelDef_BackgroundMap
+    ; (e.g. bushes, mushrooms) that overlap the player's 24px wide BOB, and ensure
+    ; the water submersion effect is cleanly applied over the newly blitted tiles.
+    bsr         TilemapStampSceneryOverLadder
+
 .exit:
     rts
 
@@ -3757,6 +3827,9 @@ TilemapStampForegroundOverBox:
 
     ; Tile found! Blit single tile (d0 = tile index, d3 = col, d2 = row)
     bsr         TilemapBlitSingleTile
+    move.w      d3,d0                   ; col
+    move.w      d2,d1                   ; row
+    bsr         TilemapSubmergeTile     ; ensure underwater foreground retains dither!
 
 .next_fg_col:
     addq.w      #1,d3
@@ -3767,6 +3840,166 @@ TilemapStampForegroundOverBox:
     bra.s       .fg_row_loop
 
 .done_fg:
+    POPM        d0-d7/a0-a4
+    rts
+
+
+;==============================================================================
+; TilemapStampSceneryOverLadder  -  Re-blit & submerge scenery adjacent to ladder
+;
+; When Mia is climbing a ladder, her 24px wide BOB extends 4px left and 4px right
+; beyond the 16px ladder column, overlapping adjacent scenery elements (e.g.
+; bushes, mushrooms, foliage) defined in LevelDef_BackgroundMap (Layer 0).
+; This routine queries LevelDef_BackgroundMap for tiles flanking the ladder shaft,
+; re-blits them with cookie-cutter transparency ($0FCA) so Mia is rendered behind
+; the scenery, and calls TilemapSubmergeTile so underwater scenery retains its
+; active water dither.
+;
+; In:  a4 = pointer to active Player struct
+;      a5 = Variables base
+;      a6 = CUSTOM ($dff000)
+; Preserves: all caller registers (pushes d0-d7/a0-a4)
+;==============================================================================
+TilemapStampSceneryOverLadder:
+    PUSHM       d0-d7/a0-a4
+
+    ; Only active when player is on a ladder (or vacating a ladder cell)
+    tst.w       Player_OnLadder(a4)
+    bne.s       .ladder_active
+
+    ; Fallback check: is current map cell a ladder in LevelDef_LadderMap?
+    move.l      CurrentLevelDef(a5),d0
+    beq         .tss_exit
+    movea.l     d0,a0
+    move.l      LevelDef_LadderMap(a0),d0
+    beq         .tss_exit
+    movea.l     d0,a0
+    addq.l      #8,a0                   ; skip 8-byte width/height header
+    move.w      Player_Y(a4),d0
+    mulu.w      #20,d0
+    add.w       Player_X(a4),d0
+    add.w       d0,d0                   ; word offset
+    tst.w       (a0,d0.w)
+    beq         .tss_exit               ; not on a ladder, exit
+
+.ladder_active:
+    move.l      CurrentLevelDef(a5),d0
+    beq         .tss_exit
+    movea.l     d0,a0
+    move.l      LevelDef_BackgroundMap(a0),d0
+    beq         .tss_exit
+    movea.l     d0,a2                   ; a2 = Background/Scenery map pointer
+    addq.l      #8,a2                   ; skip 8-byte header
+
+    ; Ladder column = Player_X(a4)
+    move.w      Player_X(a4),d7         ; d7 = ladder center column (e.g. 10)
+
+    ; Calculate start and end rows across player footprint:
+    ; Spans min(WorldY, Player_ErasedY) to max(WorldY, Player_ErasedY) + 23
+    move.w      Player_Y(a4),d4
+    lsl.w       #4,d4
+    add.w       Player_YDec(a4),d4
+    subq.w      #8,d4                   ; d4 = current WorldY
+    tst.w       Player_ErasedFlag(a5)
+    beq.s       .use_cur_y
+    move.w      Player_ErasedY(a5),d0
+    cmp.w       d0,d4
+    ble.s       .use_cur_y
+    move.w      d0,d4                   ; d4 = min top Y
+.use_cur_y:
+    bpl.s       .top_y_ok
+    moveq       #0,d4
+.top_y_ok:
+    lsr.w       #4,d4                   ; d4 = start row (0..CurrentMapHeight-1)
+
+    ; End row = (max bottom Y) >> 4
+    move.w      Player_Y(a4),d5
+    lsl.w       #4,d5
+    add.w       Player_YDec(a4),d5
+    add.w       #PLAYER_HEIGHT-1-8,d5   ; current bottom Y
+    tst.w       Player_ErasedFlag(a5)
+    beq.s       .use_cur_bottom
+    move.w      Player_ErasedY(a5),d0
+    add.w       #PLAYER_HEIGHT-1,d0
+    cmp.w       d0,d5
+    bge.s       .use_cur_bottom
+    move.w      d0,d5                   ; d5 = max bottom Y
+.use_cur_bottom:
+    lsr.w       #4,d5                   ; d5 = end row
+
+    ; Clamp rows to valid map bounds
+    move.w      CurrentMapHeight(a5),d0
+    subq.w      #1,d0
+    cmp.w       d0,d5
+    ble.s       .erow_ok
+    move.w      d0,d5
+.erow_ok:
+    cmp.w       d5,d4
+    bgt.s       .tss_exit
+
+    ; Row loop from d4 to d5
+    move.w      d4,d2                   ; d2 = cur_row
+.row_loop:
+    cmp.w       d5,d2
+    bgt.s       .tss_exit
+
+    ; Row offset in BackgroundMap: row * 40 bytes
+    move.w      d2,d0
+    lsl.w       #5,d0                   ; row * 32
+    move.w      d2,d1
+    lsl.w       #3,d1                   ; row * 8
+    add.w       d1,d0                   ; row * 40
+    lea         (a2,d0.w),a1            ; a1 = pointer to row in BackgroundMap
+
+    ; 1. Check Col - 1 (Left adjacent column, e.g. Col 9)
+    move.w      d7,d3
+    subq.w      #1,d3
+    bmi.s       .check_right
+    move.w      d3,d0
+    add.w       d0,d0                   ; col * 2
+    move.w      (a1,d0.w),d0            ; read tile index
+    beq.s       .check_right
+    ; Tile found! Blit and submerge
+    bsr         TilemapBlitSingleTile
+    move.w      d3,d0                   ; col
+    move.w      d2,d1                   ; row
+    bsr         TilemapSubmergeTile
+
+.check_right:
+    ; 2. Check Col + 1 (Right adjacent column 1, e.g. Col 11)
+    move.w      d7,d3
+    addq.w      #1,d3
+    cmp.w       CurrentMapWidth(a5),d3
+    bge.s       .next_row
+    move.w      d3,d0
+    add.w       d0,d0
+    move.w      (a1,d0.w),d0
+    beq.s       .check_right2
+    bsr         TilemapBlitSingleTile
+    move.w      d3,d0                   ; col
+    move.w      d2,d1                   ; row
+    bsr         TilemapSubmergeTile
+
+.check_right2:
+    ; 3. Check Col + 2 (Right adjacent column 2, e.g. Col 12)
+    move.w      d7,d3
+    addq.w      #2,d3
+    cmp.w       CurrentMapWidth(a5),d3
+    bge.s       .next_row
+    move.w      d3,d0
+    add.w       d0,d0
+    move.w      (a1,d0.w),d0
+    beq.s       .next_row
+    bsr         TilemapBlitSingleTile
+    move.w      d3,d0                   ; col
+    move.w      d2,d1                   ; row
+    bsr         TilemapSubmergeTile
+
+.next_row:
+    addq.w      #1,d2
+    bra.s       .row_loop
+
+.tss_exit:
     POPM        d0-d7/a0-a4
     rts
 

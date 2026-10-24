@@ -317,6 +317,8 @@ GameCompleteSetup:
     dbra        d4,.presim
 
     ; 7. Enter running state
+    clr.w       GCFadeActive(a5)
+    clr.w       GCFadeStep(a5)
     bsr         AudioPlayGameCompleteMusic
     clr.w       VBlankOverrunCount(a5) ; clear multi-frame setup overruns
     move.w      #GAME_COMPLETE_RUN,GameStatus(a5)
@@ -419,7 +421,7 @@ GCMoveStars:
 ;   3. GCRowTable: Direct 32-bit row offset table lookup eliminates 68000 mulu.
 ;
 ; Each frame:
-;   1. Read controls; FIRE or Return -> AudioStopMod + TITLE_SETUP + return.
+;   1. Read controls; FIRE or ESC -> trigger fade-out -> AudioStopMod + TITLE_SETUP.
 ;   2. Duckling bobbing: compute new Y; if Y changed, blit planes 1-4 immediately during VBlank.
 ;   3. bsr GCEraseStars -- erase all 64 stars from their current plane-0 positions.
 ;   4. bsr GCMoveStars  -- advance all star positions (speed 1/2/4, respawn).
@@ -429,20 +431,46 @@ GCMoveStars:
 GameCompleteRun:
     bsr         UpdateControls
 
+    ; -------------------------------------------------------------------------
+    ; 0. Fade-Out State Management
+    ; -------------------------------------------------------------------------
+    tst.w       GCFadeActive(a5)
+    bne.s       .handle_fade
+
+    ; Check for exit triggers: ESC key or Joystick FIRE
+    lea         Keys,a0
+    tst.b       KEY_ESC(a0)
+    bne.s       .start_fade
+
     move.b      ControlsTrigger(a5),d0
     btst        #CONTROLB_FIRE,d0
-    bne.s       .quit
-
-    lea         Keys,a0
-    tst.b       KEY_RETURN(a0)
     beq.s       .no_quit
-.quit:
+
+.start_fade:
     lea         Keys,a0
-    clr.b       KEY_RETURN(a0)
+    clr.b       KEY_ESC(a0)
+    move.w      #1,GCFadeActive(a5)
+    move.w      #FADE_SPEED_SLOW,GCFadeStep(a5)
+    bra.s       .render_frame
+
+.handle_fade:
+    subq.w      #1,GCFadeStep(a5)
+    bgt.s       .render_frame           ; wait until step timer expires
+    move.w      #FADE_SPEED_SLOW,GCFadeStep(a5)
+
+    ; Step down all colors in cpGCPal and cpGCDynColors toward $0000
+    bsr         GCFadeStepDown
+    tst.w       d0                      ; d0 = 0 when all colors reach black
+    bne.s       .render_frame           ; still fading -> keep rendering frame
+
+    ; Screen is 100% black: clean up and return to title screen
     bsr         AudioStopMod
+    clr.w       GCFadeActive(a5)
     move.w      #TITLE_SETUP,GameStatus(a5)
     rts
+
 .no_quit:
+.render_frame:
 
     ;--------------------------------------------------------------------------
     ; 1. Bobbing Duckling Animation (RUNS FIRST DURING VBLANK!)
@@ -772,3 +800,81 @@ row_idx set 0
     dc.l row_idx*LOADING_ROW_BYTES
 row_idx set row_idx+1
     endr
+
+
+;==============================================================================
+; GCFadeStepDown  -  Step all Game Complete colors down toward $0000
+;
+; Decrements each channel (R, G, B) by 1 in:
+;   1. cpGCPal (32 palette entries)
+;   2. cpGCDynColors (dynamic scanline WAIT/MOVE pairs until $FFFFFFFE)
+;
+; Out: d0.w = 1 if any color remains > 0 (fade in progress)
+;             0 if all colors have reached $0000 (fade complete)
+; Destroys: d0-d4, a0 (preserves all other registers)
+;==============================================================================
+
+GCFadeStepDown:
+    movem.l     d5-d7/a1,-(sp)
+    moveq       #0,d6                   ; d6 = modified channel accumulator
+
+    ; 1. Fade cpGCPal (32 entries, color word at offset +2, entry stride 4)
+    lea         cpGCPal+2,a0
+    moveq       #32-1,d7
+.fade_gc_pal:
+    move.w      (a0),d0
+    bsr.s       .step_channel_down
+    or.b        d1,d6
+    move.w      d0,(a0)
+    addq.l      #4,a0
+    dbra        d7,.fade_gc_pal
+
+    ; 2. Fade cpGCDynColors (scan until Copper terminator $FFFFFFFE)
+    lea         cpGCDynColors,a0
+.fade_dyn_loop:
+    move.w      (a0),d2
+    cmp.w       #$FFFF,d2               ; End of Copper list?
+    beq.s       .fade_dyn_done
+    btst        #0,d2                   ; Bit 0 set = WAIT instruction
+    bne.s       .skip_wait
+    ; Bit 0 clear = MOVE #register, color_data
+    move.w      2(a0),d0
+    bsr.s       .step_channel_down
+    or.b        d1,d6
+    move.w      d0,2(a0)
+.skip_wait:
+    addq.l      #4,a0
+    bra.s       .fade_dyn_loop
+.fade_dyn_done:
+
+    move.w      d6,d0                   ; return d0 = 1 if still fading, 0 if done
+    movem.l     (sp)+,d5-d7/a1
+    rts
+
+; In:  d0.w = $0RGB color
+; Out: d0.w = stepped color
+;      d1.b = 1 if any channel was > 0, 0 if already $000
+.step_channel_down:
+    moveq       #0,d1
+    ; Red (bits 11..8)
+    move.w      d0,d3
+    and.w       #$0F00,d3
+    beq.s       .r_zero
+    sub.w       #$0100,d0
+    moveq       #1,d1
+.r_zero:
+    ; Green (bits 7..4)
+    move.w      d0,d3
+    and.w       #$00F0,d3
+    beq.s       .g_zero
+    sub.w       #$0010,d0
+    moveq       #1,d1
+.g_zero:
+    ; Blue (bits 3..0)
+    move.w      d0,d3
+    and.w       #$000F,d3
+    beq.s       .b_zero
+    subq.w      #1,d0
+    moveq       #1,d1
+.b_zero:
+    rts

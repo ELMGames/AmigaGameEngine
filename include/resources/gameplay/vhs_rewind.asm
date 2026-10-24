@@ -16,7 +16,7 @@
 ;   5. Non-Destructive Fast RAM Backup Buffers:
 ;      Before noise or text is stamped, the exact scanlines from DisplayScreen are
 ;      backed up into dedicated Fast RAM buffers and restored before each new frame.
-;      This guarantees that ALL stationary crates, dirt blocks, and actors on
+;      This guarantees that ALL stationary crates, obstacles, and actors on
 ;      DisplayScreen are 100% preserved and never corrupted or erased!
 ;
 ; PUBLIC API
@@ -364,7 +364,7 @@ VHS_DoFrame:
 ; Restores all scanlines and areas modified by the snow bar, streaks, and
 ; 'REW  <<' text box from the Fast RAM backup buffers back to DisplayScreen.
 ; Restores the EXACT pixels that were on DisplayScreen before the noise was drawn,
-; guaranteeing that crates, dirt blocks, actors, and background are never lost.
+; guaranteeing that crates, obstacles, actors, and background are never lost.
 ; Preserves all registers.
 ;------------------------------------------------------------------------------
 

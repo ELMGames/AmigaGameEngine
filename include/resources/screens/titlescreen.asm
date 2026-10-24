@@ -298,16 +298,6 @@ TitleSetup:
     bsr         CHAR_DrawDebugInfo
 .no_debug
 
-    ; Palette fade-in (commented out):
-;    lea         cpTitlePal,a0
-;    moveq       #SCREEN_COLORS,d7
-;    bsr         PaletteFadeCapture      ; PalFadeWork = the just-patched target colours
-;    lea         cpTitlePal,a0
-;    lea         PalFadeWork,a1
-;    move.w      #FADE_SPEED_NORMAL,d0
-;    bsr         PaletteFadeIn           ; PalFadeTarget=a1[] (copied before PalFadeWork is zeroed)
-;    bsr         PaletteFadeTick         ; force the immediate black write
-
     ; 8. Advance to TITLE_RUN
     clr.w       VBlankOverrunCount(a5) ; clear multi-frame setup overruns
     move.w      #TITLE_RUN,GameStatus(a5)

@@ -281,47 +281,55 @@ StateIdle:
 ;==============================================================================
 
 GameRun:
-    bsr         LevelTest            ; advance level if complete or F1/F2 pressed
-    cmp.w       #GAME_RUN,GameStatus(a5) ; are we in GAME_RUN mode?
-    bne         .skip                ; no (ie LEVEL_WIPE/HOLD/REVEAL): skip game logic
+    bsr         LevelTest
+    cmp.w       #GAME_RUN,GameStatus(a5)
+    bne         .skip
 
-    ; ESC fade-to-black (commented out):
-;    tst.w       QuitFadeActive(a5)
-;    beq         .no_quit_fade
-;    bsr         PaletteFadeTick         ; d0=1 once cpPal has reached black
-;    tst.w       d0
-;    beq         .skip
-;    clr.w       QuitFadeActive(a5)
-;    move.w      #TITLE_SETUP,GameStatus(a5)
-;    bra         .skip
-;.no_quit_fade
+    ; ---------------------------------------------------------------------
+    ; ESC Fade-to-Black Progression
+    ; ---------------------------------------------------------------------
+    tst.w       QuitFadeActive(a5)
+    beq.s       .no_quit_fade
 
-    ; -------------------------------------------------------------------------
-    ; ESC Key: Instant Return to Title Screen
-    ; -------------------------------------------------------------------------
-    lea         Keys,a0
-    tst.b       KEY_ESC(a0)
-    beq.s       .no_esc
-    clr.b       KEY_ESC(a0)
-    bsr         AudioStopMod         ; halt Paula audio DMA before exiting
-    cmp.w       #2,DebugMode(a5)
-    bne.s       .esc_no_bar
-    bsr         TilemapEnableCopperSky
-    move.w      #1,DebugMode(a5)     ; stay in debug mode, but deactivate raster bar
-.esc_no_bar:
-    clr.w       CustomLevelLoaded(a5) ; revert to standard game mode
+    bsr         PaletteFadeTick         ; returns d0=1 once cpPal has reached black
+    tst.w       d0
+    beq         .skip                   ; freeze player/actors while fading
+
+    ; Screen is 100% black: clean up and transition
+    clr.w       QuitFadeActive(a5)
+    bsr         AudioStopMod            ; silence music on black screen
+    clr.w       CustomLevelLoaded(a5)
     clr.l       CustomLevelDef(a5)
     clr.w       SlowMode(a5)
     tst.w       GamePaused(a5)
     beq.s       .esc_not_paused
     bsr         TilemapErasePauseBanner
-.esc_not_paused:
     clr.w       GamePaused(a5)
+.esc_not_paused:
+    lea         Keys,a0
     clr.b       KEY_P(a0)
     clr.w       DebugOverlayActive(a5)
     clr.w       PrevDebugDrawn(a5)
-    move.w      #0,LevelId(a5)
+;    move.w      #0,LevelId(a5)
     move.w      #TITLE_SETUP,GameStatus(a5)
+    bra         .skip
+.no_quit_fade:
+
+    ; -------------------------------------------------------------------------
+    ; ESC Key: Trigger Fade Out to Title Screen
+    ; -------------------------------------------------------------------------
+    lea         Keys,a0
+    tst.b       KEY_ESC(a0)
+    beq.s       .no_esc
+    clr.b       KEY_ESC(a0)
+    clr.b       KEY_P(a0)
+
+    ; Start fade-to-black instead of abrupt jump
+    bsr         TilemapDisableCopperSky ; halt sky gradient so background fades with palette
+    lea         cpPal,a0
+    move.w      #FADE_SPEED_SLOW,d0   ; ~0.64s smooth linear fade
+    bsr         PaletteFadeOut
+    move.w      #1,QuitFadeActive(a5)
     bra         .skip
 .no_esc:
 
@@ -452,7 +460,6 @@ GameRun:
     ; -------------------------------------------------------------------------
     bsr         ActionCloudActors    ; animate any pending enemy death cloud puff animations
     bsr         AnimateEnemies       ; cycle ENEMYFALL/ENEMYFLOAT tile frames (2fps)
-    bsr         ActionDirtActors     ; draw dirt crumble particles
 
     ; -------------------------------------------------------------------------
     ; 5. Static Layer & In-World Objects

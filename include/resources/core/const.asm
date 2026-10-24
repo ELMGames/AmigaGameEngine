@@ -45,12 +45,12 @@ BASE_DMA            = DMAF_SETCLR|DMAF_MASTER|DMAF_RASTER|DMAF_COPPER|DMAF_BLITT
 
 
 ;------------------------------------------------------------------------------
-; Maximum number of actor slots allocated in the actor pool.
-; One slot per map cell is the theoretical maximum (if every cell held an actor).
-; MAP_SIZE is defined below.
+; Maximum number of pushable crate / interactive block actor slots per level.
+; In the 6-level campaign, the peak count of active crates is 2 (Levels 3 & 4).
+; Setting MAX_ACTIVE_CRATES = 16 provides an 8x safety margin while saving ~21 KB
+; of Fast RAM across live Variables and the 8-slot Undo/VHS rewind SnapshotBuffer.
 ;------------------------------------------------------------------------------
-MAX_ACTORS          = MAP_SIZE
-
+MAX_ACTIVE_CRATES   = 16
 
 ;------------------------------------------------------------------------------
 ; Display Window registers  (DIWSTRT / DIWSTOP)
@@ -340,10 +340,11 @@ BLOCK_EMPTY         = 0    ; open space - player and actors may enter freely
 BLOCK_LADDER        = 1    ; ladder column - player can climb up/down
 BLOCK_ENEMYFALL     = 2    ; enemy subject to gravity (falls if unsupported)
 BLOCK_PUSH          = 3    ; pushable block - player slides it horizontally
-BLOCK_DIRT          = 4    ; breakable dirt - player destroys it on contact
+                           ; (slot 4 is unused/reserved to preserve jump table indexing)
 BLOCK_SOLID         = 5    ; impassable wall - nothing passes through
 BLOCK_ENEMYFLOAT    = 6    ; floating enemy - not affected by gravity
 BLOCK_PLAYERSTART   = 7    ; Player start position marker in level data
+                           ; (slot 8 is unused/reserved)
 BLOCK_PLAYERLADDER  = 9    ; map cell occupied by Player while on a ladder
 
 ;------------------------------------------------------------------------------
@@ -384,9 +385,15 @@ CAM_MARGIN_TOP           = 1*TILEMAP_TILE_HEIGHT       ; 1 row below top of scre
 CAM_MARGIN_BOTTOM        = (TILEMAP_VIEW_ROWS-2)*TILEMAP_TILE_HEIGHT ; 1 row above bottom of screen (row 11) = 176 pixels
 
 ; Level screen buffer holding the entire level: 43 rows (688 scanlines = 110,080 bytes)
-LEVEL_SCREEN_ROWS        = 43
-LEVEL_SCREEN_HEIGHT      = LEVEL_SCREEN_ROWS*TILEMAP_TILE_HEIGHT ; 43 * 16 = 688 scanlines
-LEVEL_SCREEN_SIZE        = LEVEL_SCREEN_HEIGHT*TILEMAP_LINE_STRIDE ; 688 * 160 = 110,080 bytes
+; Minimum level height is 13 rows (208 px) to fill the 200/216-scanline viewport.
+; Maximum level height is an engine configuration limit (default 50 rows = 800 scanlines).
+; Note: Each row requires 2,560 bytes per buffer (5,120 bytes across DisplayScreen & NonDisplayScreen).
+; Setting this higher directly reduces available Chip RAM for audio and sprites on a 512 KB OCS Amiga!
+MIN_SCREEN_ROWS          = 13
+MAX_SCREEN_ROWS          = 50
+LEVEL_SCREEN_ROWS        = MAX_SCREEN_ROWS
+LEVEL_SCREEN_HEIGHT      = LEVEL_SCREEN_ROWS*TILEMAP_TILE_HEIGHT ; 50 * 16 = 800 scanlines
+LEVEL_SCREEN_SIZE        = LEVEL_SCREEN_HEIGHT*TILEMAP_LINE_STRIDE ; 800 * 160 = 128,000 bytes
 
 ; Master Level Table count (Level 1..6)
 LEVEL_TABLE_COUNT         = 6
@@ -561,10 +568,6 @@ START_LEVEL         = 0
 ; Tile indices for dynamic actor blocks (tileset-compact).
 ;------------------------------------------------------------------------------
 TILE_PUSH           = 18   ; pushable block (CRATE from tileset, TSX id 18, GID 19)
-TILE_DIRTA          = 16   ; dirt, no neighbours
-TILE_DIRTB          = 17   ; dirt, right neighbour present
-TILE_DIRTC          = 18   ; dirt, left neighbour present
-TILE_DIRTD          = 19   ; dirt, both neighbours (centre of a run)
 TILE_ENEMYFALLA     = 20   ; falling enemy, frame 0
 TILE_ENEMYFALLB     = 21   ; falling enemy, frame 1
 TILE_ENEMYFALLC     = 22   ; falling enemy, frame 2
@@ -719,31 +722,6 @@ CLOUD_FRAMES            = 7
 CLOUD_FRAME_TICKS       = 8
 LOG2_CLOUD_FRAME_TICKS  = 3
 CLOUD_TOTAL_TICKS       = CLOUD_FRAME_TICKS*CLOUD_FRAMES   ; 56
-
-;------------------------------------------------------------------------------
-; Dirt block destruction animation
-;
-; When a dirt block is destroyed by the player, a 6-frame crumble animation
-; plays at the tile position.
-;
-; Sprite sheet (sprites.bin, 12×12 grid, index = row*12 + col):
-;   row 10, cols 0..5 → indices 120..125
-;
-; DIRT_TOTAL_TICKS = DIRT_FRAME_TICKS * DIRT_FRAMES = 48 VBlanks (~960ms PAL)
-;   Actor_DirtTick counts 1..DIRT_TOTAL_TICKS while animating; 0 = idle.
-;   DIRT_FRAME_TICKS must be a power of 2; LOG2_DIRT_FRAME_TICKS = log2(DIRT_FRAME_TICKS).
-;------------------------------------------------------------------------------
-SPRITE_DIRT_A           = 39   ; dirt break frame 0  (row 9, col 0)
-SPRITE_DIRT_B           = 40   ; dirt break frame 1  (row 9, col 1)
-SPRITE_DIRT_C           = 41   ; dirt break frame 2  (row 9, col 2)
-SPRITE_DIRT_D           = 42   ; dirt break frame 3  (row 9, col 3)
-SPRITE_DIRT_E           = 43   ; dirt break frame 4  (row 9, col 4)
-SPRITE_DIRT_F           = 44   ; dirt break frame 5  (row 9, col 5)
-SPRITE_DIRT_G           = 45   ; dirt break frame 6  (row 9, col 6)
-DIRT_FRAMES             = 7
-DIRT_FRAME_TICKS        = 8
-LOG2_DIRT_FRAME_TICKS   = 3
-DIRT_TOTAL_TICKS        = DIRT_FRAME_TICKS*DIRT_FRAMES      ; 56
 
 ;------------------------------------------------------------------------------
 ; Level wipe transition

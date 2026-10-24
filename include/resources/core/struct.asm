@@ -89,8 +89,8 @@ Player_Sizeof:            rs.w    0   ; total structure size in bytes (for ds.b 
 ;==============================================================================
 ; Actor structure  (Actor_Sizeof bytes)
 ;
-; Holds the state of one game object / enemy instance.  The actor pool lives
-; in the Variables block as  Actors: ds.b Actor_Sizeof*MAX_ACTORS.
+; Holds the state of one pushable crate / interactive block actor instance. The actor
+; pool lives in the Variables block as  Actors: ds.b Actor_Sizeof*MAX_ACTIVE_CRATES.
 ; a3 is the convention register for a pointer to the current actor struct.
 ;
 ; The ActorList array holds longword pointers to active actor structures,
@@ -133,7 +133,7 @@ Actor_Delta:              rs.l    1   ; fixed-point easing accumulator (push ani
 Actor_FallY:              rs.w    1   ; pixel target for end of fall animation
 Actor_ImpactTick:         rs.w    1   ; landing smoke tick: 0=idle, 1..IMPACT_TOTAL_TICKS=animating
 Actor_CloudTick:          rs.w    1   ; cloud death tick: 0=idle, 1..CLOUD_TOTAL_TICKS=animating
-Actor_DirtTick:           rs.w    1   ; dirt break tick:  0=idle, 1..DIRT_TOTAL_TICKS=animating
+Actor_Reserved1:          rs.w    1   ; reserved slot (preserves struct alignment & size)
 Actor_Dirty:              rs.w    1   ; 1 = needs redraw via DrawStaticActors; 0 = already drawn
 Actor_PixelX:             rs.w    1   ; cached pixel X = Actor_X * 24 (kept in sync with Actor_X)
 Actor_PixelY:             rs.w    1   ; cached pixel Y = Actor_Y * 24 (kept in sync with Actor_Y)
@@ -147,11 +147,11 @@ Actor_Sizeof:             rs.w    0   ; total structure size in bytes
 ;
 ; One snapshot captures the minimal game state needed to fully rewind one move:
 ;   - Player (Mia): tile X/Y, status, facing, and on-ladder flag
-;   - The full GameMap (WALL_PAPER_SIZE bytes) - records dirt/push/enemy positions
-;   - All actor slots: X, Y, Status, Type, SpriteOffset, Static
+;   - The full GameMap (MAX_GAME_MAP_SIZE bytes) - records push crate/obstacle positions
+;   - All crate actor slots: X, Y, Status, Type, SpriteOffset, Static
 ;     (6 words each).  (Actor_CanFall/IsPlayer never change - not saved.)
 ;
-; MAX_ACTORS (= MAP_SIZE = 88) slots are always saved, dead or alive,
+; MAX_ACTIVE_CRATES (= 16) slots are always saved, dead or alive,
 ; so the slot index within Actors[] is preserved across save/restore.
 ;
 ; Snap_sizeof bytes per snapshot; UNDO_BUFFER_SIZE snapshots in SnapshotBuffer.
@@ -167,7 +167,7 @@ Snap_PlayerFacing:        rs.w    1   ; Player Player_Facing (+1/-1)
 Snap_PlayerOnLadder:      rs.w    1   ; Player Player_OnLadder (0/nonzero)
 Snap_Map:                 rs.b    MAX_GAME_MAP_SIZE  ; GameMap copy (1280 bytes)
 Snap_ActorCount:           rs.w    1   ; active actor count saved (0..ActorCount)
-Snap_Actors:              rs.b    MAX_ACTORS*SNAP_ACTOR_WORDS*2  ; 88 x 14 bytes (1,232 bytes)
+Snap_Actors:              rs.b    MAX_ACTIVE_CRATES*SNAP_ACTOR_WORDS*2  ; 16 x 12 bytes = 192 bytes
 Snap_WaterPixelY:         rs.w    1   ; exact vertical scanline of water surface (0..671, or -1)
 Snap_WaterCurrentRow:     rs.w    1   ; row of top of water (WaterPixelY >> 4)
 Snap_WaterSubTick:        rs.w    1   ; fractional frame accumulator

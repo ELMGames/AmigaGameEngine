@@ -42,7 +42,7 @@
 ;      valid player lives counter (DEFAULT_LIVES).
 ;   3. Seed random number generator with LevelId ($BABEFEED) for deterministic
 ;      tile pattern variation.
-;   4. Clear particle animation pools (CloudActorsCount, DirtActorsCount).
+;   4. Clear particle animation pools (CloudActorsCount).
 ;   5. Look up active LevelDef pointer from LevelTable[LevelId].
 ;   6. Unpack map dimensions, camera bounds (LevelMinCameraY..LevelMaxCameraY),
 ;      deadzone margins, and initial camera scroll position.
@@ -99,7 +99,6 @@ LevelInit:
     move.l        d0,RandomSeed(a5)      ; store as new seed
 
     clr.w         CloudActorsCount(a5)   ; reset cloud animation list for new level
-    clr.w         DirtActorsCount(a5)    ; reset dirt animation list for new level
     clr.w         FallenActorsCount(a5)  ; reset falling actors list for new level
 
     ; -------------------------------------------------------------------------
@@ -445,10 +444,31 @@ LevelTransitionRun:
 
 .normal_reveal
     ; Transition from cpBanner (or foreign copper) to cpGame:
-    ; Build the level, load tileset palette into cpPal, install cpGame
+    ; Build the level, load tileset palette into cpPal, draw static actors/player,
+    ; and arm a smooth palette fade-in from black.
     clr.w       EnterGameCopper(a5)
     bsr         GameCopperInit          ; patch cpGame bitplane ptrs + default pal, hide sprites
     bsr         LevelRevealSetup        ; build level; TilemapInit draws DisplayScreen & loads palette into cpPal
+    bsr         DrawPlayersAndActors    ; draw static actors and initial player BOB
+    bsr         LevelIntroSetup         ; snap camera and finalize player animation/ladder state
+
+    ; Capture live 32-color target palette from cpPal (0..15 tiles, 16..31 sprites) into PalFadeWork
+    lea         cpPal,a0
+    moveq       #SCREEN_COLORS,d7
+    bsr         PaletteFadeCapture
+
+    ; Arm palette fade-in from black to the captured target palette
+    lea         cpPal,a0
+    lea         PalFadeWork,a1
+    move.w      #FADE_SPEED_NORMAL,d0   ; smooth linear fade-in
+    bsr         PaletteFadeIn
+
+    ; Disable Copper sky gradient during fade so entire background starts solid black
+    bsr         TilemapDisableCopperSky
+
+    ; Start level music as the visual fade-in begins
+    bsr         AudioPlayLevelMusic
+
    ; bsr         VHS_Init                ; arm VHS distortion region (PAL/NTSC)
     move.l      #-1,ScreenMemEnd        ; re-arm the screen overrun sentinel
     move.l      #cpGame,COP1LC(a6)      ; switch to the fully-prepared game copper
@@ -457,47 +477,18 @@ LevelTransitionRun:
     rts
 
     ; -----------------------------------------------------------------------
-    ; LEVEL_REVEAL phase: copy WIPE_SPEED tiles from NonDisplayScreen to DisplayScreen
+    ; LEVEL_REVEAL phase: step palette fade-in from black to level colors
     ; -----------------------------------------------------------------------
 .reveal_phase
-    ; Tiled levels have the full 42 rows pre-rendered into DisplayScreen by TilemapInit;
-    ; skip the legacy 24x24 tile-by-tile reveal to avoid delays or buffer stomping.
-    tst.l       CurrentLevelDef(a5)
-    bne         .reveal_done
+    bsr         PaletteFadeTick         ; advance fade; returns d0=1 when target reached
+    tst.w       d0
+    beq.s       .reveal_fading          ; still fading -> remain in LEVEL_REVEAL
 
-    move.w      WipeTilesDone(a5),d7
-    cmp.w       #WALL_PAPER_SIZE,d7
-    bge         .reveal_done
-
-    moveq       #WIPE_SPEED-1,d6
-.reveal_loop
-    cmp.w       #WALL_PAPER_SIZE,d7
-    bge         .reveal_blit_done
-
-    clr.l       d0
-    lea         WipeTileX(a5),a0
-    move.b      (a0,d7.w),d0            ; d0 = tile X (0..13)
-    clr.l       d1
-    lea         WipeTileY(a5),a0
-    move.b      (a0,d7.w),d1            ; d1 = tile Y (0..8)
-
-    bsr         RestoreBackgroundTile        ; copy tile from NonDisplayScreen -> DisplayScreen
-
-    addq.w      #1,d7
-    dbra        d6,.reveal_loop
-
-.reveal_blit_done
-    move.w      d7,WipeTilesDone(a5)
-    rts
-
-.reveal_done
-    ; All tiles revealed - restore actor tiles, initialize Level and resume gameplay
-    bsr         DrawPlayersAndActors
-    bsr         LevelIntroSetup
-    bsr         AudioPlayLevelMusic     ; start MOD music as level becomes playable
+    ; Fade complete (d0 = 1) -> restore Copper sky gradient and transition to gameplay
+    bsr         TilemapEnableCopperSky
     clr.w       VBlankOverrunCount(a5)  ; clear multi-frame level load/reveal overruns before entering GAME_RUN!
-
-    move.w      #GAME_RUN,GameStatus(a5)       ; return to GameRun (state 2)
+    move.w      #GAME_RUN,GameStatus(a5) ; transition to active gameplay!
+.reveal_fading:
     rts
 
 ;==============================================================================
