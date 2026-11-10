@@ -1,0 +1,43 @@
+% LaTeX styling for the companion guides. Used by docs/build_docs_pdf.ps1.
+
+\usepackage{xcolor}
+\definecolor{guideblue}{HTML}{1F4E8C}
+\definecolor{guiderule}{HTML}{B8C2CC}
+\definecolor{guidegrey}{HTML}{666666}
+\definecolor{breaksbg}{HTML}{FFF4E8}
+\definecolor{breaksbar}{HTML}{C8641E}
+
+% Headings: blue, with a rule under each main section
+\usepackage{titlesec}
+\titleformat{\section}{\Large\bfseries\color{guideblue}}{}{0pt}{}[{\color{guiderule}\titlerule}]
+\titleformat{\subsection}{\large\bfseries\color{guideblue}}{}{0pt}{}
+\titleformat{\subsubsection}{\normalsize\bfseries\color{guideblue}}{}{0pt}{}
+\titlespacing*{\section}{0pt}{22pt}{10pt}
+\titlespacing*{\subsection}{0pt}{16pt}{6pt}
+
+% Running heads: repository name, current section
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\footnotesize\color{guidegrey}AmigaGameEngine}
+\fancyhead[R]{\footnotesize\color{guidegrey}\nouppercase{\leftmark}}
+\fancyfoot[C]{\footnotesize\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{{\color{guiderule}\hrule width\headwidth height\headrulewidth}}
+\setlength{\headheight}{14pt}
+\renewcommand{\sectionmark}[1]{\markboth{#1}{}}
+
+% Smaller type in tables, and room between paragraphs
+\usepackage{etoolbox}
+\AtBeginEnvironment{longtable}{\small}
+\setlength{\parskip}{5pt plus 1pt}
+
+% "Breaks as:" call-out boxes (see guide-boxes.lua)
+\usepackage[most]{tcolorbox}
+\newtcolorbox{breaksbox}{
+  enhanced, breakable, sharp corners, frame hidden,
+  colback=breaksbg, boxrule=0pt,
+  borderline west={2.5pt}{0pt}{breaksbar},
+  left=6pt, right=6pt, top=2pt, bottom=2pt,
+  before skip=6pt, after skip=8pt
+}

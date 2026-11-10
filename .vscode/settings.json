@@ -1,0 +1,11 @@
+{
+    "debug.allowBreakpointsEverywhere": true,
+    "files.associations": {
+        "*.asm": "m68k",
+        "*.s": "m68k",
+        "*.i": "m68k"
+    },
+    "[m68k]": {
+        "editor.rulers": []
+    }
+}

@@ -1,0 +1,19 @@
+ZX0 compressor (zx0)
+====================
+
+Only needed if you change the loading screen. The normal build does not use it,
+because the compressed picture, loadingscreen.zx0, is already in the repository.
+
+By Einar Saukas, BSD 3-Clause licence.
+
+  https://github.com/einar-saukas/ZX0
+
+Windows: download zx0.exe from the win folder of that repository.
+macOS and Linux: build it from the src folder of that repository.
+
+Put zx0.exe (or zx0) in this tools folder, or anywhere on your PATH, then run:
+
+  python games/duck_rescue/tools/convert_loading_screen.py
+
+The engine's decompressor expects the current ZX0 format, which is what the
+compressor writes by default. Do not use the -c ("classic") option.

@@ -1,0 +1,17 @@
+Amiga Image Converter (amigeconv)
+=================================
+
+Only needed if you change the loading screen. The normal build does not use it,
+because the converted picture is already in the repository.
+
+By Todi / Tulou, MIT licence.
+
+  https://github.com/tditlu/amigeconv
+
+Download a precompiled binary from the Releases page of that repository, or
+build it with make in a Unix-like environment.
+
+Put amigeconv.exe (or amigeconv) in this tools folder, or anywhere on your PATH,
+then run:
+
+  python games/duck_rescue/tools/convert_loading_screen.py

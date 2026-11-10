@@ -1,0 +1,139 @@
+# ==============================================================================
+# Motorola 68000 Assembly / Toolchains / Emulators
+# ==============================================================================
+
+# Object, intermediate, and symbol files
+*.o
+*.obj
+*.srec
+*.symbols
+*.sym
+*.xref
+*.lst
+*.list
+
+# Common 68k / Amiga / Retro binary outputs (uncomment if you compile locally)
+# *.bin
+# *.elf
+# *.hex
+# *.rom
+# *.adf
+# *.hdm
+# *.dsk
+# *.exe
+
+# Assembler temporary & backup files (VASM, Devpac, ASM-One, etc.)
+*.tmp
+*.bak
+*.old
+*.BAK
+*.i.bak
+
+# Emulator state and temporary runtime data (FS-UAE, WinUAE, Hatari)
+*.nvram
+*.state
+*.sav
+*.asav
+fs-uae.log
+winuae.log
+
+# Kickstart ROMs are copyrighted: keep your own copies in roms/, never commit them
+roms/*
+!roms/README.md
+
+# ==============================================================================
+# Python Tooling (Scripts, asset converters, test harnesses)
+# ==============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+venv/
+.venv/
+env/
+
+# ==============================================================================
+# Documentation, Word Processors & Publishing Builds
+# ==============================================================================
+
+# LaTeX / PDF generation artifacts
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
+# Office & Editor locks / auto-saves
+~$*.docx
+~$*.xlsx
+~$*.pptx
+.~lock.*#
+*.swp
+*.swo
+*~
+.#*
+
+# Build outputs (e.g., Sphinx, MkDocs, or HTML docs)
+site/
+dist/
+
+# ==============================================================================
+# Code Editors & IDEs
+# ==============================================================================
+
+# Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# JetBrains / CLion
+.idea/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ==============================================================================
+# Operating System Junk
+# ==============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+
+# main build artifacts (e.g., compiled binaries, object files, etc.) are ignored by default
+uae/dho/main*
+
+# Floppy images: game.adf is made by make_adf.py; Workbench disks are copyrighted
+adfs/*
+!adfs/README.md
+# The release build make_adf.py puts on the disk
+build/adf/

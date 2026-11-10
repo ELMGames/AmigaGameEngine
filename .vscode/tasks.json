@@ -1,0 +1,75 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "type": "amigaassembly",
+            "vasm": {
+                "enabled": true,
+                "command": "${config:amiga-assembly.binDir}/vasmm68k_mot",
+                "args": [
+                    "-m68000",
+                    "-Fhunk",
+                    "-linedebug",
+                    "-ignore-mult-inc",
+                    "-nowarn=2047",
+                    "-nowarn=2069"
+                ],
+                "leaveWarnings": true
+            },
+            "vlink": {
+                "enabled": true,
+                "command": "${config:amiga-assembly.binDir}/vlink",
+                "includes": "*.{s,S,asm,ASM}",
+                "excludes": "",
+                "exefilename": "../uae/dh0/main",
+                "entrypoint": "main.asm",
+                "args": [
+                    "-bamigahunk",
+                    "-Bstatic"
+                ]
+            },
+            "problemMatcher": [
+                "$vasm",
+                "$vlink"
+            ],
+            "label": "amigaassembly: build",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "make ADF",
+            "detail": "Release build of the current game into adfs/game.adf (bootable; DF1: in the Workbench profile)",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "${workspaceFolder}/make_adf.py"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "silent",
+                "panel": "shared"
+            },
+            "osx": {
+                "command": "python3"
+            },
+            "linux": {
+                "command": "python3"
+            }
+        },
+        {
+            "label": "build + ADF",
+            "detail": "The debug build F5 runs, then adfs/game.adf",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "amigaassembly: build",
+                "make ADF"
+            ],
+            "problemMatcher": []
+        }
+    ]
+}
