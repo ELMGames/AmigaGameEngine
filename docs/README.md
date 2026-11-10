@@ -10,7 +10,7 @@ Short technical guides that go with the book *Building an AMIGA Game Engine*. Ea
 | Asset Pipeline Guide | [PDF](ASSET_PIPELINE_GUIDE.pdf) | Every converter, the formats the hardware reads, Chip versus Fast RAM, golden tests | Ch 28, 33 |
 | Coding Conventions | [PDF](CODING_CONVENTIONS_GUIDE.pdf) | Naming, layout, routine headers, registers and flags, engine and game boundaries | Ch 5, 18 |
 | Single Translation Units | [PDF](SINGLE_TRANSLATION_UNITS_GUIDE.pdf) | Why the engine assembles in one pass instead of linking objects | Ch 5, 8 |
-| Launch Profiles Guide | [PDF](VSCODE_LAUNCH_PROFILES_GUIDE.pdf) | The seven launch profiles: five WinUAE machines (including AROS, no ROM needed), Workbench with the game in DF1:, and FS-UAE for macOS and Linux; the build task and the ADF step | Ch 4, 23 |
+| Launch Profiles Guide | [PDF](VSCODE_LAUNCH_PROFILES_GUIDE.pdf) | The eight launch profiles: six WinUAE machines (including AROS, no ROM needed), Workbench with the game in DF1:, and FS-UAE for macOS and Linux; the build task and the ADF step | Ch 4, 23 |
 
 `engine/ENGINE_CONTRACT.md` is the reference table behind the Making a Game guide.
 

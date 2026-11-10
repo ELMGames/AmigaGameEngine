@@ -322,11 +322,18 @@ GameRunQuitFade:
     beq.s       .no_quit_fade
 
     bsr         PaletteFadeTick         ; returns d0=1 once cpPal has reached black
+    tst.w       SkyFadeMode(a5)
+    beq.s       .qf_sky_done
+    bsr         TilemapUpdateCopperSky  ; dim the sky by the same step (preserves d0)
+.qf_sky_done:
     tst.w       d0
     beq         .skip_frame             ; freeze player/actors while fading
+    cmp.w       #FADE_MAX_STEPS,PalFadeStep(a5)
+    blo         .skip_frame             ; palette black, brighter sky colours still dimming
 
     ; Screen is 100% black: clean up and transition
     clr.w       QuitFadeActive(a5)
+    clr.w       SkyFadeMode(a5)
     bsr         AudioStopMod            ; silence music on black screen
     clr.w       CustomLevelLoaded(a5)
     clr.l       CustomLevelDef(a5)
@@ -353,8 +360,16 @@ GameRunQuitFade:
     clr.b       KEY_ESC(a0)
     clr.b       KEY_P(a0)
 
-    ; Start fade-to-black instead of abrupt jump
-    bsr         TilemapDisableCopperSky ; halt sky gradient so background fades with palette
+    ; Start fade-to-black instead of abrupt jump. The sky fades with the palette,
+    ; unless the game is paused: the pause has desaturated cpGameSky in place, so
+    ; the sky is dropped instead of being rebuilt from CopperSkyTable.
+    tst.w       GamePaused(a5)
+    beq.s       .esc_sky_fade
+    bsr         TilemapDisableCopperSky
+    bra.s       .esc_palette_fade
+.esc_sky_fade:
+    move.w      #SKY_FADE_OUT,SkyFadeMode(a5)
+.esc_palette_fade:
     lea         cpPal,a0
     move.w      #FADE_SPEED_SLOW,d0   ; 15 steps x 4 frames = ~1.2s (PAL)
     bsr         PaletteFadeOut

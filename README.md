@@ -260,7 +260,7 @@ All game assets are processed deterministically via scripts in [`games/duck_resc
 │   ├── build.py                    # Command-line build driver (assets, --check, --explain)
 │   └── make_adf.py                 # Bootable floppy image of the current game -> adfs/game.adf
 ├── .vscode/                        # Build tasks and launch profiles: WinUAE (Kickstart 1.3, AROS, NTSC,
-│                                   #   A1200, A4000, Workbench + DF1:) and FS-UAE (macOS, Linux, Windows)
+│                                   #   A600, A1200, A4000, Workbench + DF1:) and FS-UAE (macOS, Linux, Windows)
 ├── adfs/                           # game.adf (made by tools/make_adf.py) and your own Workbench disk (ignored by Git)
 ├── roms/                           # Your own Kickstart ROMs (ignored by Git; see roms/README.md)
 ├── uae/dh0/                        # The emulated hard drive: main, starter, their icons, S/startup-sequence

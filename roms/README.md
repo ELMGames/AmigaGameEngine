@@ -8,6 +8,7 @@ Windows, macOS and Linux.
 |---|---|
 | `kick1.3.rom` | A500 profile (Kickstart 1.3) |
 | `kick2.04.rom` | A500+ profile (Kickstart 2.04) |
+| `kick2.05.rom` | A600 profile (Kickstart 2.05, the ROM the A600 shipped with) |
 | `kick3.1.rom` | A1200 and A4000 profiles (Kickstart 3.1) |
 
 The names must match exactly, including capitals on macOS and Linux.

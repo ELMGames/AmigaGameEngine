@@ -59,7 +59,7 @@
 
 PaletteFadeCapture:
     PUSHM       d7/a0/a1
-    lea         PalFadeWork,a1
+    lea         PalFadeWork(a5),a1
 .cap_loop
     move.w      2(a0),(a1)+         ; copy the colour data word (offset +2 in each pair)
     addq.l      #4,a0               ; advance to next { reg, data } copper entry (4 bytes)
@@ -85,7 +85,7 @@ PaletteFadeCapture:
 
 PaletteFadeSetTarget:
     PUSHM       d7/a0/a1
-    lea         PalFadeTarget,a1
+    lea         PalFadeTarget(a5),a1
 .tgt_loop
     move.w      (a0)+,(a1)+
     subq.w      #1,d7
@@ -138,8 +138,8 @@ PaletteFadeTick:
     ;   2. For each nibble: if work > target, decrement; if work < target, increment.
     ;   3. Write back to PalFadeWork.
 
-    lea         PalFadeWork,a0
-    lea         PalFadeTarget,a1
+    lea         PalFadeWork(a5),a0
+    lea         PalFadeTarget(a5),a1
     moveq       #SCREEN_COLORS-1,d7     ; loop counter (d2/d3 used as scratch by FADE_STEP_*)
 
 .step_loop
@@ -159,7 +159,7 @@ PaletteFadeTick:
 
 .no_step
     ; --- Write PalFadeWork into the active copper palette block --------------
-    lea         PalFadeWork,a0
+    lea         PalFadeWork(a5),a0
     move.l      PalFadeCopper(a5),a1    ; caller set this to cpPal or cpLoadingPal
     moveq       #SCREEN_COLORS-1,d2
 .write_loop
@@ -169,8 +169,8 @@ PaletteFadeTick:
 
     ; --- Check for completion ------------------------------------------------
     ; The fade is done when PalFadeWork equals PalFadeTarget for all 32 entries.
-    lea         PalFadeWork,a0
-    lea         PalFadeTarget,a1
+    lea         PalFadeWork(a5),a0
+    lea         PalFadeTarget(a5),a1
     moveq       #SCREEN_COLORS-1,d2
 .check_loop
     move.w      (a0)+,d0
@@ -210,7 +210,7 @@ PaletteFadeOut:
     PUSHM       d7/a0/a1
 
     ; Set the target to all-black ($000 for all 32 entries)
-    lea         PalFadeTarget,a1
+    lea         PalFadeTarget(a5),a1
     moveq       #SCREEN_COLORS-1,d7
 .clr_target
     clr.w       (a1)+
@@ -255,7 +255,7 @@ PaletteFadeIn:
     bsr         PaletteFadeSetTarget    ; copies a1[] -> PalFadeTarget
 
     ; Zero the working palette so we start from black
-    lea         PalFadeWork,a0
+    lea         PalFadeWork(a5),a0
     moveq       #SCREEN_COLORS-1,d7
 .zero_loop
     clr.w       (a0)+

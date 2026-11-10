@@ -97,6 +97,10 @@ TilemapUpdateCopperSkyForce:
     add.w       d0,d0                   ; 2 bytes per word
     lea         CopperSkyTable,a0
     adda.w      d0,a0                   ; a0 -> 216 words of sky palette
+    tst.w       SkyFadeMode(a5)
+    beq.s       .no_sky_fade
+    bsr         SkyFadeApply            ; a0 -> the same 216 colours, faded
+.no_sky_fade:
 
     lea         cpGameSky,a1            ; a1 -> destination copper buffer
 
@@ -181,6 +185,93 @@ TilemapUpdateCopperSkyForce:
     move.l      #COPPER_HALT,(a1)+
     POPM        d0-d7/a0-a3
     rts
+
+;==============================================================================
+; SkyFadeApply  -  Fade the 216 sky colours in step with the palette fade
+;
+; The palette fade (palette_fade.asm) moves every 4-bit channel one level per
+; step, so after k steps (k = PalFadeStep) a fade-in has each channel at
+; min(target, k) and a fade-out at max(target - k, 0). This applies the same
+; rule to the sky gradient, so the sky brightens and darkens with the rest of
+; the screen instead of being switched off and snapping back afterwards.
+;
+; In:       a0 = first of the SCREEN_HEIGHT sky colours to show
+;           SkyFadeMode(a5) = SKY_FADE_IN or SKY_FADE_OUT, PalFadeStep(a5) = k
+; Out:      a0 = SkyFadeBuf, holding the faded colours
+; Destroys: d0-d7, a2
+;==============================================================================
+
+SkyFadeApply:
+    move.w      PalFadeStep(a5),d6
+    cmp.w       #FADE_MAX_STEPS,d6
+    bls.s       .k_ok
+    moveq       #FADE_MAX_STEPS,d6      ; d6 = k, at most 15
+.k_ok:
+    move.w      d6,d4
+    lsl.w       #8,d4                   ; d4 = k in the red position
+    move.w      d6,d5
+    lsl.w       #4,d5                   ; d5 = k in the green position
+    lea         SkyFadeBuf,a2
+    move.w      #SCREEN_HEIGHT-1,d7
+    cmp.w       #SKY_FADE_IN,SkyFadeMode(a5)
+    bne.s       .out_loop
+
+.in_loop:                               ; fade-in: each channel = min(channel, k)
+    move.w      (a0)+,d0
+    move.w      d0,d1
+    and.w       #$0f00,d1
+    cmp.w       d4,d1
+    bls.s       .in_r
+    move.w      d4,d1
+.in_r:
+    move.w      d0,d3
+    and.w       #$00f0,d3
+    cmp.w       d5,d3
+    bls.s       .in_g
+    move.w      d5,d3
+.in_g:
+    or.w        d3,d1
+    and.w       #$000f,d0
+    cmp.w       d6,d0
+    bls.s       .in_b
+    move.w      d6,d0
+.in_b:
+    or.w        d1,d0
+    move.w      d0,(a2)+
+    dbra        d7,.in_loop
+    bra.s       .faded
+
+.out_loop:                              ; fade-out: each channel = max(channel - k, 0)
+    move.w      (a0)+,d0
+    move.w      d0,d1
+    and.w       #$0f00,d1
+    sub.w       d4,d1
+    bpl.s       .out_r
+    moveq       #0,d1
+.out_r:
+    move.w      d0,d3
+    and.w       #$00f0,d3
+    sub.w       d5,d3
+    bpl.s       .out_g
+    moveq       #0,d3
+.out_g:
+    or.w        d3,d1
+    and.w       #$000f,d0
+    sub.w       d6,d0
+    bpl.s       .out_b
+    moveq       #0,d0
+.out_b:
+    or.w        d1,d0
+    move.w      d0,(a2)+
+    dbra        d7,.out_loop
+
+.faded:
+    lea         SkyFadeBuf,a0
+    rts
+
+    section     mem_fast,bss
+SkyFadeBuf:     ds.w    SCREEN_HEIGHT   ; faded sky colours while SkyFadeMode is set
+    section     main,code
 
 
 ; TileAttributesTable  -  Physics & Collision Attribute Lookup Table

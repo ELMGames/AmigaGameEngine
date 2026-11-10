@@ -314,25 +314,25 @@ TilemapDrawLayerRows:
     lea         GameTilesMsk,a2
     lea         GameTilesRaw,a3
 .td_ts_ready:
+    lea         TileSheetOffsetTable,a4 ; a4 = tile offset table, loaded once
 
 .tile_loop:
     ; Read tile index from map data (Big-Endian word: $00XX)
     move.w      (a0)+,d0
     beq.s       .skip_empty_tile        ; tile index 0 is transparent/empty
 
-    ; Fast lookup of source byte offset in tileset!
+    ; Look up the tile's byte offset in the tileset
     add.w       d0,d0
-    lea         TileSheetOffsetTable,a4
     move.w      (a4,d0.w),d0
     ext.l       d0
 
     WAITBLIT
-    movea.l     a2,a4
-    adda.l      d0,a4
-    move.l      a4,BLTAPT(a6)           ; Mask (Channel A)
-    movea.l     a3,a4
-    adda.l      d0,a4
-    move.l      a4,BLTBPT(a6)           ; Source tile (Channel B)
+    move.l      a2,d2
+    add.l       d0,d2
+    move.l      d2,BLTAPT(a6)           ; Mask (Channel A)
+    move.l      a3,d2
+    add.l       d0,d2
+    move.l      d2,BLTBPT(a6)           ; Source tile (Channel B)
     move.l      a1,BLTCPT(a6)           ; Destination screen (Channel C)
     move.l      a1,BLTDPT(a6)           ; Destination screen (Channel D)
 
@@ -425,22 +425,22 @@ TilemapDrawLayerRows_DirectCopy:
 .td_legacy_ts_dc:
     lea         GameTilesRaw,a3
 .td_ts_ready_dc:
+    lea         TileSheetOffsetTable,a4 ; a4 = tile offset table, loaded once
 
 .tile_loop_dc:
     ; Read the tile index from the map (one word per cell)
     move.w      (a0)+,d0
     beq.s       .skip_empty_tile_dc     ; tile index 0 is transparent/empty
 
-    ; Fast lookup of source byte offset in tileset
+    ; Look up the tile's byte offset in the tileset
     add.w       d0,d0
-    lea         TileSheetOffsetTable,a4
     move.w      (a4,d0.w),d0
     ext.l       d0
 
     WAITBLIT
-    movea.l     a3,a4
-    adda.l      d0,a4
-    move.l      a4,BLTAPT(a6)           ; Source tile raw (Channel A)
+    move.l      a3,d2
+    add.l       d0,d2
+    move.l      d2,BLTAPT(a6)           ; Source tile raw (Channel A)
     move.l      a1,BLTDPT(a6)           ; Destination screen (Channel D)
 
     ; Blit Size: 16 rows * 4 bitplanes = 64 rows, 1 word wide (16px)

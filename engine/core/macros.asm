@@ -57,7 +57,7 @@ POPM               MACRO
                    ENDM
 
 PUSHMOST           MACRO
-                   movem.l    d0-a4,-(sp)   ; save d0-d7, a0-a4 (11 regs = 44 bytes)
+                   movem.l    d0-a4,-(sp)   ; save d0-d7, a0-a4 (13 regs = 52 bytes)
                    ENDM
 
 POPMOST            MACRO

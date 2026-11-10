@@ -463,15 +463,17 @@ LevelTransitionRun:
     lea         cpPal,a0
     moveq       #SCREEN_COLORS,d7
     bsr         PaletteFadeCapture
+    clr.w       PalFadeWork(a5)         ; COLOR00 target black: the sky paints the background
 
     ; Arm palette fade-in from black to the captured target palette
     lea         cpPal,a0
-    lea         PalFadeWork,a1
+    lea         PalFadeWork(a5),a1
     move.w      #FADE_SPEED_NORMAL,d0   ; smooth linear fade-in
     bsr         PaletteFadeIn
 
-    ; Disable Copper sky gradient during fade so entire background starts solid black
-    bsr         TilemapDisableCopperSky
+    ; Fade the Copper sky gradient in with the palette, starting from black (step 0)
+    move.w      #SKY_FADE_IN,SkyFadeMode(a5)
+    bsr         TilemapUpdateCopperSky
 
     ; Start level music as the visual fade-in begins
     bsr         AudioPlayLevelMusic
@@ -487,10 +489,14 @@ LevelTransitionRun:
     ; -----------------------------------------------------------------------
 .reveal_phase
     bsr         PaletteFadeTick         ; advance fade; returns d0=1 when target reached
+    bsr         TilemapUpdateCopperSky  ; rebuild the sky at the same fade step (preserves d0)
     tst.w       d0
     beq.s       .reveal_fading          ; still fading -> remain in LEVEL_REVEAL
+    cmp.w       #FADE_MAX_STEPS,PalFadeStep(a5)
+    blo.s       .reveal_fading          ; palette done, but brighter sky colours still rising
 
-    ; Fade complete (d0 = 1) -> restore Copper sky gradient and transition to gameplay
+    ; Fade complete -> sky at full colour, transition to gameplay
+    clr.w       SkyFadeMode(a5)
     bsr         TilemapEnableCopperSky
     clr.w       VBlankOverrunCount(a5)  ; clear multi-frame level load/reveal overruns before GAME_RUN
     move.w      #GAME_RUN,GameStatus(a5) ; transition to active gameplay

@@ -428,6 +428,9 @@ FADE_SPEED_SLOW          = 4     ; frames between colour steps (slowest)
 FADE_MAX_STEPS           = 15    ; OCS palette has 4-bit channels (0..$F)
 FADE_OUT                 = 0     ; direction flag: fade toward black
 FADE_IN                  = 1     ; direction flag: fade toward target palette
+SKY_FADE_OFF             = 0     ; SkyFadeMode: Copper sky drawn at full colour
+SKY_FADE_IN              = 1     ; SkyFadeMode: sky channels clamped to PalFadeStep
+SKY_FADE_OUT             = 2     ; SkyFadeMode: sky channels reduced by PalFadeStep
 
 ;------------------------------------------------------------------------------
 ; Game Complete scrolling starfield

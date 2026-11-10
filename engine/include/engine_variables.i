@@ -136,6 +136,7 @@ PalFadeSpeedCount:    rs.w    1                 ; frame countdown timer
 PalFadeStep:          rs.w    1                 ; total steps executed
 PalFadeCopper:        rs.l    1                 ; pointer to active Copper list palette block
 QuitFadeActive:       rs.w    1                 ; 1 if ESC quit-to-title fade is active
+SkyFadeMode:          rs.w    1                 ; SKY_FADE_OFF/IN/OUT: sky follows the palette fade
 PalFadeWork:          rs.w    32                ; working copy of 32 colors
 PalFadeTarget:        rs.w    32                ; target copy of 32 colors
 
