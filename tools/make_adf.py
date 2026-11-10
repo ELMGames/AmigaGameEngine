@@ -3,10 +3,10 @@
 make_adf.py - Build a bootable floppy image of the current game.
 
 Usage:
-  python make_adf.py              build adfs/game.adf for the game the root main.asm includes
-  python make_adf.py --game NAME  build it for games/NAME instead
+  python tools/make_adf.py              build adfs/game.adf for the game the root main.asm includes
+  python tools/make_adf.py --game NAME  build it for games/NAME instead
 
-The disk holds a release build of the game (built by build.py into
+The disk holds a release build of the game (built by tools/build.py into
 build/adf/main, with no debug information), its Workbench icon if there is
 one, and an S/Startup-Sequence that runs it. So the same image:
   * boots on its own from DF0:, and
@@ -25,7 +25,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent  # tools/ -> repository root
 ADF = ROOT / "adfs" / "game.adf"
 
 
@@ -57,7 +57,7 @@ def main():
         return 0
 
     exe = ROOT / "build" / "adf" / "main"
-    res = subprocess.run([sys.executable, str(ROOT / "build.py"), "--game", game, "--out", str(exe)])
+    res = subprocess.run([sys.executable, str(ROOT / "tools" / "build.py"), "--game", game, "--out", str(exe)])
     if res.returncode != 0:
         return res.returncode
 

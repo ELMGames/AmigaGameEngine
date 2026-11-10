@@ -280,9 +280,8 @@ Level_06_Def:
     dc.l    Level_06_BridgeList         ; Bridge zones table
     dc.l    Level_06_OxygenList         ; Oxygen refills table
 
-    ; --- Banner Text & Access Code ---
+    ; --- Banner Text ---
     dc.l    Level_06_TitleStr           ; Null-terminated title string
     dc.l    Level_06_SubTitleStr        ; Null-terminated subtitle string
-    dc.b    "ACORN6",0,0                ; 6-char access password + padding
     even
 

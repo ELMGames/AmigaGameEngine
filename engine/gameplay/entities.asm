@@ -923,7 +923,7 @@ TilemapEraseEnemy:
 
 TilemapDrawEnemySubPixel:
     move.w      Enemy_X(a4),d0             ; 0..319
-    move.w      Enemy_Y(a4),d1             ; 0..671
+    move.w      Enemy_Y(a4),d1             ; 0..799
 
     ; Source frame pointer: enemy sprite sheet layout:
     ;   - 8 enemy types (Enemy_Type 1..8) stacked vertically
@@ -1145,7 +1145,7 @@ TilemapUpdateFriends:
 
 TilemapDrawFriendSubPixel:
     move.w      Friend_X(a4),d0             ; 0..319
-    move.w      Friend_Y(a4),d1             ; 0..671
+    move.w      Friend_Y(a4),d1             ; 0..799
 
     ; Source frame pointer in FriendSpritesRaw / FriendSpritesMsk:
     ; Source offset = (Type - 1) * FRIEND_ROW_STRIDE (512) + (AnimFrame * 2)
@@ -1453,7 +1453,7 @@ TilemapRestorePlayerOverlaps:
 ; TilemapStampForegroundOverFriend  -  Re-blit foreground tiles overlapping friend
 ;
 ; In:  d0.w = Friend World X (0..319)
-;      d1.w = Friend World Y (0..671)
+;      d1.w = Friend World Y (0..799)
 ;      a5   = Variables base
 ;      a6   = CUSTOM
 ; Preserves: all caller registers (pushes d0-d7/a0-a4 in TilemapStampForegroundOverBox)

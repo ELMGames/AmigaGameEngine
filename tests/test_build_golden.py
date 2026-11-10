@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from golden_support import GOLDEN_DIR, REPO_ROOT, sha256_of  # noqa: E402
 
-sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "tools"))
 import build  # noqa: E402
 
 GOLDEN = GOLDEN_DIR / "executables.json"
@@ -32,7 +32,7 @@ def build_game(game):
     out = REPO_ROOT / GAMES[game]
     if out.exists():
         out.unlink()
-    res = subprocess.run([sys.executable, str(REPO_ROOT / "build.py"), "--game", game, "--out", GAMES[game]],
+    res = subprocess.run([sys.executable, str(REPO_ROOT / "tools" / "build.py"), "--game", game, "--out", GAMES[game]],
                          cwd=REPO_ROOT, capture_output=True, text=True)
     if res.returncode != 0 or "== OK:" not in res.stdout or not out.exists():
         raise RuntimeError(f"build of {game} failed:\n{res.stdout[-2000:]}\n{res.stderr[-2000:]}")

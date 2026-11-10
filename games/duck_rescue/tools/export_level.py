@@ -566,7 +566,6 @@ def package_level_binary(
     pal: list,
     level_title: str,
     level_sub_title: str,
-    access_code: str,
     gamemap: list,
     layer_grids: list
 ):
@@ -574,15 +573,15 @@ def package_level_binary(
     Package level into standalone .lvl binary file ('ALVL').
     Layout:
       0..7:    Header (ALVL magic, version 1, flags 0)
-      8..133:  LevelDef struct (126 bytes)
-      134..135: Alignment padding (2 bytes)
-      136+:    Data sections (palette, text, entities, gamemap, layers, layer list)
+      8..125:  LevelDef struct (118 bytes)
+      126..127: Alignment padding (2 bytes)
+      128+:    Data sections (palette, text, entities, gamemap, layers, layer list)
     """
 
     package_path = Path(package_path).resolve()
     package_path.parent.mkdir(parents=True, exist_ok=True)
 
-    buf = bytearray(136)
+    buf = bytearray(128)
     # Header: magic 'ALVL', version 1, flags 0; the LevelDef record follows at offset 8
     struct.pack_into(">4sHH", buf, 0, b"ALVL", 1, 0)
 
@@ -614,9 +613,8 @@ def package_level_binary(
     buf.extend(struct.pack(">I", 0))
     align4(buf)
 
-    access_code_bytes = (access_code.ljust(6, ' ')[:6].encode('ascii') + b'\0\0')[:8]
     leveldef_bytes = struct.pack(
-        ">4I2H5I2H2I5h3h3h9I2I8s",
+        ">4I2H5I2H2I5h3h3h9I2I",
         0, 0, offset_palette, 0,
         width, height,
         layer_offsets["background"], layer_offsets["platform"], layer_offsets["ladder"],
@@ -630,8 +628,7 @@ def package_level_binary(
         offset_enemies, offset_friends, offset_blocks,
         offset_ladders, offset_solids, offset_triggers,
         offset_hazards, offset_bridges, offset_oxygens,
-        offset_title, offset_subtitle,
-        access_code_bytes
+        offset_title, offset_subtitle
     )
     buf[8:8 + len(leveldef_bytes)] = leveldef_bytes
 
@@ -727,12 +724,6 @@ def _parse_header(lv: SimpleNamespace) -> None:
     lv.level_title = map_props.get("title", map_props.get("level_title", map_props.get("name", lv.prefix.replace("_", " ").upper()))).strip()
     lv.level_sub_title = map_props.get("sub_title", map_props.get("subtitle", map_props.get("hint", map_props.get("level_hint", "")))).strip()
 
-    # Auto-generate 6-char access password from level prefix (e.g. Level_01 -> ACORN1, Level_02 -> ACORN2)
-    level_num_str = "".join(ch for ch in lv.prefix if ch.isdigit())
-    default_code = f"ACORN{int(level_num_str)}" if level_num_str else "ACORN1"
-    raw_code = map_props.get("access_code", map_props.get("password", map_props.get("code", default_code))).strip().upper()
-    lv.access_code = (raw_code[:6] if len(raw_code) >= 6 else raw_code.ljust(6, " "))[:6]
-
     # Parse tilesets with full categorization and properties
     lv.tileset_attrs = {}
     lv.tileset_info = None
@@ -780,6 +771,8 @@ def _parse_header(lv: SimpleNamespace) -> None:
     lv.foreground_grid = [0] * (lv.width * lv.height)
     lv.water_grid = [0] * (lv.width * lv.height)
     lv.gamemap = [BLOCK_EMPTY] * (lv.width * lv.height)
+    lv.platform_cells = set()    # cells painted on the platforms layer (for the layout lint)
+    lv.ladder_cells = set()      # cells painted on the ladders layer
     tile_layers = []
 
     lv.player_start = {"x": 24, "y": 512, "col": 1, "row": 31, "xdec": 8, "dir": 1}
@@ -930,11 +923,13 @@ def _parse_tile_layers(lv: SimpleNamespace) -> None:
                 if is_world_tile:
                     lv.platform_grid[idx] = comp_id
                 lv.gamemap[idx] = BLOCK_SOLID
+                lv.platform_cells.add(idx)
 
             elif is_ladders_layer:
                 if is_world_tile:
                     lv.ladder_grid[idx] = comp_id
                 lv.gamemap[idx] = BLOCK_LADDER
+                lv.ladder_cells.add(idx)
 
             elif is_background_layer:
                 if is_world_tile:
@@ -1504,7 +1499,6 @@ def _write_binary_maps(lv: SimpleNamespace) -> bool:
             pal=pal,
             level_title=lv.level_title,
             level_sub_title=lv.level_sub_title,
-            access_code=lv.access_code,
             gamemap=lv.gamemap,
             layer_grids=layer_grids
         )
@@ -1519,7 +1513,7 @@ def _asm_begin(lv: SimpleNamespace) -> None:
     # Write Assembly Metadata File
     # =========================================================================
     if lv.asm_out is None:
-        # Default to include/resources/levels/<prefix>_entities.asm or out_dir/<prefix>_entities.asm
+        # Default to include/levels/<prefix>_entities.asm, or out_dir/<prefix>_entities.asm
         include_dir = Path(__file__).resolve().parent.parent / "include" / "levels"
         if include_dir.parent.exists():
             include_dir.mkdir(parents=True, exist_ok=True)
@@ -1921,10 +1915,9 @@ def _asm_leveldef(lv: SimpleNamespace) -> None:
         asm_line("dc.l", f"{lv.prefix}_BridgeList", "Bridge zones table"),
         asm_line("dc.l", f"{lv.prefix}_OxygenList", "Oxygen refills table"),
         "",
-        "    ; --- Banner Text & Access Code ---",
+        "    ; --- Banner Text ---",
         asm_line("dc.l", f"{lv.prefix}_TitleStr", "Null-terminated title string"),
         asm_line("dc.l", f"{lv.prefix}_SubTitleStr", "Null-terminated subtitle string"),
-        asm_line("dc.b", f'"{lv.access_code}",0,0', "6-char access password + padding"),
         "    even",
         ""
     ])
@@ -1933,6 +1926,36 @@ def _asm_leveldef(lv: SimpleNamespace) -> None:
         f_asm.write("\n".join(lv.asm_lines) + "\n")
 
     print(f"[*] Done! Level {lv.prefix} successfully exported.")
+
+
+def _lint_layout(lv: SimpleNamespace) -> list[str]:
+    """Check the ladder layout rules of Chapter 28 and return one warning per
+    break. The checks only warn: a map that breaks a rule still exports.
+
+    Rule 1a: the top rung of a ladder sits in the platform row, with a solid
+             tile beside it, so the player can step on from the walkway.
+    Rule 1b: the bottom rung sits in the open cell above the floor; a ladder
+             tile painted over a floor cell turns that floor into a ladder.
+    Rule 1c: a ladder ends on something solid, not in mid-air.
+    """
+    w, h = lv.width, lv.height
+    warnings = []
+    for idx in sorted(lv.ladder_cells):
+        c, r = idx % w, idx // w
+        above = idx - w if r > 0 else None
+        below = idx + w if r < h - 1 else None
+        is_top = above is None or above not in lv.ladder_cells
+        is_bottom = below is None or below not in lv.ladder_cells
+        if is_top and r > 0:
+            beside = [lv.gamemap[idx + d] for d in (-1, 1) if 0 <= c + d < w]
+            if BLOCK_SOLID not in beside:
+                warnings.append(f"ladder top at col {c}, row {r} has no solid tile beside it (rule 1a)")
+        if is_bottom:
+            if idx in lv.platform_cells and above is not None and above in lv.ladder_cells:
+                warnings.append(f"ladder tile over the floor at col {c}, row {r}: the floor becomes a ladder (rule 1b)")
+            elif below is not None and lv.gamemap[below] not in (BLOCK_SOLID, BLOCK_PUSH):
+                warnings.append(f"ladder at col {c} ends in mid-air at row {r} (rule 1c)")
+    return warnings
 
 
 def export_tmx(tmx_file: str, out_dir: str | None = None, asm_out: str | None = None, prefix: str | None = None, package_out: str | None = None) -> None:
@@ -1945,6 +1968,8 @@ def export_tmx(tmx_file: str, out_dir: str | None = None, asm_out: str | None = 
     _parse_tile_layers(lv)
     _parse_object_layers(lv)
     _build_gamemap(lv)
+    for warning in _lint_layout(lv):
+        print(f"    WARNING: {warning}")
     if _write_binary_maps(lv):
         return                       # standalone .lvl package only
     _asm_begin(lv)

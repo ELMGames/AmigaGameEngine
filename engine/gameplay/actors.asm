@@ -24,7 +24,7 @@ HAS_TILEMAP_CAMERA = 1
 ; InitGameObjects  -  Scan the game map and create an actor for each object
 ;
 ; Called by LevelInit after the maps are built.  Iterates over every cell of
-; GameMap (WALL_PAPER_WIDTH x WALL_PAPER_HEIGHT = 14 x 9 = 126 cells) and
+; GameMap (MAP_WIDTH x CurrentMapHeight cells) and
 ; calls InitObject for non-empty, non-solid cells.
 ;
 ; After all actors are created, SortActors is called to order the ActorList
@@ -62,7 +62,7 @@ InitGameObjects:
     bsr         InitObject                 ; create actor for this block type
 
     addq.w      #1,d1                      ; advance to next column
-    cmp.w       #WALL_PAPER_WIDTH,d1       ; end of row?
+    cmp.w       #MAP_WIDTH,d1       ; end of row?
     bne         .nextcell
 
     moveq       #0,d1                      ; reset column to 0
@@ -357,7 +357,7 @@ TilemapDrawPushBlocks:
 ; re-composite any actor that was sitting on that tile, since restoring the
 ; background alone would otherwise erase it.
 ;
-; Entry: d0 = tile X (0..WALL_PAPER_WIDTH-1), d1 = tile Y (0..WALL_PAPER_HEIGHT-1)
+; Entry: d0 = tile X (0..MAP_WIDTH-1), d1 = tile Y (0..CurrentMapHeight-1)
 ; Preserves: all registers (PUSHM/POPM d0-d2/d7/a0-a3).
 ;==============================================================================
 

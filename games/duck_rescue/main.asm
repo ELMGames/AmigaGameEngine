@@ -227,7 +227,8 @@ CopperSkyTable:
 ; LevelInit accesses this table via LevelIndex(a5) * 4 to unpack the level's
 ; tile layers (Background, Platform, Ladder, Water, Foreground), camera bounds,
 ; player spawn coordinates, enemy patrol routes, animal friends, and oxygen kits.
-; LEVEL_TABLE_COUNT is defined in const.asm.
+; LEVEL_TABLE_COUNT is worked out from the table below, so adding a level
+; needs only a new dc.l line.
 ;------------------------------------------------------------------------------
 ; Contract bindings: data the engine falls back to when no LevelDef is active
 ; (engine/gameplay/customlevel.asm, tmx_renderer.asm, water_effects.asm),
@@ -247,7 +248,10 @@ LevelTable:
     dc.l       Level_04_Def
     dc.l       Level_05_Def
     dc.l       Level_06_Def
+LevelTableEnd:
     dc.l       0                       ; null terminator
+
+LEVEL_TABLE_COUNT       = (LevelTableEnd-LevelTable)/4 ; built-in levels (engine contract)
 
 ;------------------------------------------------------------------------------
 ; Michroma proportional "hero text" font (placard/warning screens, e.g. the

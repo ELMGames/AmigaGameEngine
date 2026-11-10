@@ -130,7 +130,7 @@ Do not rely on a one-register `movem` to keep the flags either: an assembler is 
 
 ```powershell
 python -m unittest discover tests          # contract, converter and executable goldens
-python build.py --game duck_rescue         # and every other game you touched
+python tools/build.py --game duck_rescue         # and every other game you touched
 ```
 
 If the executable golden changes, test the build in the emulator first, then accept it with `python tests/update_golden.py --executables`.

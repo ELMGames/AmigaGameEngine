@@ -132,8 +132,11 @@ $RECYCLE.BIN/
 # main build artifacts (e.g., compiled binaries, object files, etc.) are ignored by default
 uae/dho/main*
 
-# Floppy images: game.adf is made by make_adf.py; Workbench disks are copyrighted
+# Floppy images: game.adf is made by tools/make_adf.py; Workbench disks are copyrighted
 adfs/*
 !adfs/README.md
-# The release build make_adf.py puts on the disk
+# The release build tools/make_adf.py puts on the disk
 build/adf/
+
+# Sound-effect previews written by generate_sfx.py (WAV, for listening only)
+games/*/scratch/

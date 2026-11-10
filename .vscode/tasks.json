@@ -44,7 +44,7 @@
             "type": "shell",
             "command": "python",
             "args": [
-                "${workspaceFolder}/make_adf.py"
+                "${workspaceFolder}/tools/make_adf.py"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"

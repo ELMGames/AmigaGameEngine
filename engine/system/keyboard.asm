@@ -146,7 +146,7 @@ KeyboardInterrupt:
     lea        CUSTOM,a0              ; custom chip base
     move.w     intreqr(a0),d0         ; read interrupt request flags
     btst       #INTB_PORTS,d0         ; is the PORTS bit set?
-    beq        .end                   ; spurious interrupt â€” not from CIA-A, bail out
+    beq        .end                   ; spurious interrupt, not from CIA-A, bail out
 
     lea        $bfe001,a1             ; CIA-A base address
     move.b     ciaicr(a1),d2          ; read once: this clears every CIA-A flag

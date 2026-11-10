@@ -1,6 +1,6 @@
 ;==============================================================================
 ; AMIGA GAME ENGINE
-; flashscreen.asm  -  Engine Intro Splash / Flash Screen (states 19 and 20)
+; flashscreen.asm  -  Engine Intro Splash / Flash Screen (states 23 and 24)
 ;==============================================================================
 ;
 ; Shown immediately on startup before the ZX Spectrum tape loading sequence.
@@ -25,7 +25,7 @@ FLASH_LOGO_OFF      = FLASH_LOGO_Y*LOADING_ROW_BYTES+FLASH_LOGO_X/8 ; 68*200+2 =
 FLASH_LOGO_DMOD     = LOADING_ROW_BYTES-FLASH_LOGO_W_BYTES         ; 200-36 = 164
 
 ;==============================================================================
-; FlashScreenSetup  -  One-shot initialisation for Flash Screen (state 19)
+; FlashScreenSetup  -  One-shot initialisation for Flash Screen (state 23)
 ;
 ; Destroys: none (preserves all registers)
 ;==============================================================================
@@ -114,7 +114,7 @@ FlashScreenSetup:
     move.w      #FLASH_DURATION,d0
     move.w      d0,FlashScreenTimer(a5)
 
-    ; 8. Advance to FLASH_RUN (state 20)
+    ; 8. Advance to FLASH_RUN (state 24)
     move.w      #FLASH_RUN,GameStatus(a5)
 
     POPALL
@@ -122,7 +122,7 @@ FlashScreenSetup:
 
 
 ;==============================================================================
-; FlashScreenRun  -  Per-frame handler for Flash Screen (state 20)
+; FlashScreenRun  -  Per-frame handler for Flash Screen (state 24)
 ;
 ; Destroys: none (preserves all registers)
 ;==============================================================================

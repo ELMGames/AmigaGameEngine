@@ -44,7 +44,7 @@ ENTITY_TOP_TIER_Y         = 48    ; screen Y splitting the VBlank tier (rows 0..
 ;------------------------------------------------------------------------------
 Enemy_Type                = 0     ; Enemy Type (1..8, 0 = inactive)
 Enemy_X                   = 2     ; Current X pixel position (0..319)
-Enemy_Y                   = 4     ; Current Y pixel position (0..671)
+Enemy_Y                   = 4     ; Current Y pixel position (0..799)
 Enemy_Direction           = 6     ; Direction (+1 = right, -1 = left)
 Enemy_Speed               = 8     ; Speed (pixels per frame)
 Enemy_PatrolMinX          = 10    ; Left patrol boundary (pixel X)
@@ -61,7 +61,7 @@ Enemy_Sizeof              = 24
 ;------------------------------------------------------------------------------
 Friend_Type               = 0     ; Friend Type (1..n, 0 = inactive)
 Friend_X                  = 2     ; Current World X pixel position (0..319)
-Friend_Y                  = 4     ; Current World Y pixel position (0..671)
+Friend_Y                  = 4     ; Current World Y pixel position (0..799)
 Friend_AnimFrame          = 6     ; Current animation frame (0..3)
 Friend_AnimTimer          = 8     ; Frame timer for the animation
 Friend_Collected          = 10    ; 1 if collected, 0 if active

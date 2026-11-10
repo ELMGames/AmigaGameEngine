@@ -96,31 +96,12 @@ LevelTest:
     rts
 
 .nope:
+    ; F8 restarts the level. The debug warp keys (F1/F2) are handled
+    ; by GameRunDebugKeys in gamestatus.asm.
     lea         Keys,a0
-    tst.b       KEY_F1(a0)
-    beq         .nof1
-    clr.b       KEY_F1(a0)
-    tst.w       DebugMode(a5)
-    beq         .nof1
-    tst.w       LevelId(a5)
-    beq         .nof1
-    subq.w      #1,LevelId(a5)
-    bra         .changelevel
-.nof1:
-    tst.b       KEY_F2(a0)
-    beq         .nof2
-    clr.b       KEY_F2(a0)
-    tst.w       DebugMode(a5)
-    beq         .nof2
-    cmp.w       #LEVEL_TABLE_COUNT-1,LevelId(a5)
-    beq         .nof2
-    addq.w      #1,LevelId(a5)
-    bra         .changelevel
-.nof2:
     tst.b       KEY_F8(a0)
     beq         .nokeypress_lc
     clr.b       KEY_F8(a0)
-.changelevel:
     bsr         AudioStopMod
     move.w      #LEVEL_INIT,GameStatus(a5)
 .nokeypress_lc:
@@ -203,7 +184,7 @@ LevelCompleteSetup:
     dbra        d7,.grad_copy
 
     ; 3. Pick random headshot frame (0 or 1) for the active player:
-    RANDOMWORD                          ; d0.w = pseudo-random value from LFSR
+    RANDOMWORD                          ; d0.w = pseudo-random value
     move.w      VHPOSR(a6),d1           ; mix in hardware raster beam counter
     eor.w       d1,d0
     btst        #0,d0                   ; 50/50 chance

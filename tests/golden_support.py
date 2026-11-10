@@ -1,7 +1,7 @@
 """
 golden_support.py - shared helpers for the asset-converter golden-file tests.
 
-The Duck Rescue asset pipeline (the scripts listed in build.py's
+The Duck Rescue asset pipeline (the scripts listed in tools/build.py's
 ASSET_PIPELINE) is deterministic: the same PNG/TMX/synth inputs always
 produce the same raw/mask/palette/asm outputs. That makes it cheap to pin
 every output file to a SHA-256 and detect any unintended change to a
@@ -26,7 +26,7 @@ GOLDEN_DIR = Path(__file__).resolve().parent / "golden"
 DEFAULT_GAME = "duck_rescue"
 IGNORED_DIRS = {"__pycache__"}
 
-sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "tools"))
 from build import ASSET_PIPELINE  # noqa: E402  (single source of truth for the script list)
 
 

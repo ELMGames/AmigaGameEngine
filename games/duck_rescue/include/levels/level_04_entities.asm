@@ -258,9 +258,8 @@ Level_04_Def:
     dc.l    Level_04_BridgeList         ; Bridge zones table
     dc.l    Level_04_OxygenList         ; Oxygen refills table
 
-    ; --- Banner Text & Access Code ---
+    ; --- Banner Text ---
     dc.l    Level_04_TitleStr           ; Null-terminated title string
     dc.l    Level_04_SubTitleStr        ; Null-terminated subtitle string
-    dc.b    "ACORN4",0,0                ; 6-char access password + padding
     even
 

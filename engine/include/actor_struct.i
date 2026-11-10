@@ -50,8 +50,8 @@ Actor_FallY:              rs.w    1   ; pixel target for end of fall animation
 Actor_ImpactTick:         rs.w    1   ; landing smoke tick: 0=idle, 1..IMPACT_TOTAL_TICKS=animating
 Actor_Reserved1:          rs.w    1   ; reserved slot (preserves struct alignment & size)
 Actor_Dirty:              rs.w    1   ; 1 = needs redraw via DrawStaticActors; 0 = already drawn
-Actor_PixelX:             rs.w    1   ; cached pixel X = Actor_X * 24 (kept in sync with Actor_X)
-Actor_PixelY:             rs.w    1   ; cached pixel Y = Actor_Y * 24 (kept in sync with Actor_Y)
+Actor_PixelX:             rs.w    1   ; cached pixel X = Actor_X * 16 (kept in sync with Actor_X)
+Actor_PixelY:             rs.w    1   ; cached pixel Y = Actor_Y * 16 (kept in sync with Actor_Y)
 Actor_IsPlayer:           rs.w    1   ; 1 = proxy for the frozen player; draw via DrawPlayerFrozen
 Actor_Sizeof:             rs.w    0   ; total structure size in bytes
 

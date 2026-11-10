@@ -670,7 +670,7 @@ TilemapDrawPlayerCore:
 ; TilemapStampForegroundOverPlayer  -  Re-blit foreground tiles overlapping player
 ;
 ; In:  d0.w = Player World X (0..319)
-;      d1.w = Player World Y (0..671)
+;      d1.w = Player World Y (0..799)
 ;      a5   = Variables base
 ;      a6   = CUSTOM
 ; Destroys: d2-d3 (set to the player box size before the fall-through;
@@ -685,7 +685,7 @@ TilemapStampForegroundOverPlayer:
 ; TilemapStampForegroundOverBox  -  Re-blit foreground tiles overlapping actor box
 ;
 ; In:  d0.w = Actor World X (0..319)
-;      d1.w = Actor World Y (0..671)
+;      d1.w = Actor World Y (0..799)
 ;      d2.w = Actor Width (pixels)
 ;      d3.w = Actor Height (pixels)
 ; Preserves: all caller registers (pushes d0-d7/a0-a4 at entry, restores at .done_fg)
@@ -700,7 +700,7 @@ TilemapStampForegroundOverBox:
     subq.w      #1,d7
     lsr.w       #4,d7                   ; d7 = end col = (X + Width - 1) / 16 (0..19)
 
-    ; Calculate start/end rows: d1 = Y (0..671)
+    ; Calculate start/end rows: d1 = Y (0..799)
     move.w      d1,d4
     lsr.w       #4,d4                   ; d4 = start row = Y / 16 (0..41)
     move.w      d1,d5
@@ -953,7 +953,7 @@ TilemapStampSceneryOverLadder:
 ;
 ; Arguments:
 ;   d0.w = World X (0..319)
-;   d1.w = World Y (0..671)
+;   d1.w = World Y (0..799)
 ;   a5   = Variables base
 ;   a6   = CUSTOM base
 ; Preserves: all registers
@@ -1054,7 +1054,7 @@ DrawActor:
 
     move.w      Actor_PrevY(a3),d1
     lsl.w       #4,d1
-    add.w       Actor_YDec(a3),d1      ; d1 = World Y (0..671)
+    add.w       Actor_YDec(a3),d1      ; d1 = World Y (0..799)
 
     ; Absolute bounds check
     cmp.w       #0,d0

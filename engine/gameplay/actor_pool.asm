@@ -3,19 +3,7 @@
 ; actor_pool.asm  -  Actor Lifecycle, O(n) Counting Sort, and Dirty Batching
 ;==============================================================================
 
-    IFND MAX_MAP_HEIGHT
-        IFD WALL_PAPER_HEIGHT
-MAX_MAP_HEIGHT      = WALL_PAPER_HEIGHT
-        ELSE
-MAX_MAP_HEIGHT      = 16
-        ENDC
-    ENDC
-    IFND SORT_COUNT_BYTES
-SORT_COUNT_BYTES    = (MAX_MAP_HEIGHT*2)
-    ENDC
-    IFND MAX_ACTIVE_CRATES
-MAX_ACTIVE_CRATES   = 16
-    ENDC
+; MAX_MAP_HEIGHT, SORT_COUNT_BYTES and MAX_ACTIVE_CRATES come from engine_const.i.
 
 ;==============================================================================
 ; GetActorSlot  -  Allocate and initialise the next free actor slot
@@ -292,9 +280,9 @@ CleanActors:
 ; bottom rows before top rows so a falling actor clears its GameMap cell
 ; before the actor above it is checked in the same pass.
 ;
-; Y values are bounded to 0..8 (WALL_PAPER_HEIGHT-1), giving exactly 9
+; Y values are bounded to 0..MAX_MAP_HEIGHT-1, giving MAX_MAP_HEIGHT
 ; buckets.  Three passes over ActorList (O(n)) replace the old O(n²) bubble
-; sort.  Scratch space: 9-word count/offset array on the stack + ActorSortBuf
+; sort.  Scratch space: MAX_MAP_HEIGHT-word count/offset array on the stack + ActorSortBuf
 ; in the Variables block.
 ;
 ; ActorSlotPtr is NOT used as the end sentinel (CleanActors does not update

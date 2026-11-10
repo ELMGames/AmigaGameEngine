@@ -4,7 +4,7 @@
 ; player_fsm.asm  -  Player Action State Machine & Movement Dispatch
 ;==============================================================================
 ;
-; Part of the player module (one of player_fsm/_physics/_combat/_water.asm; all follow the
+; Part of the player module (one of player_fsm/_combat/_water.asm; all follow the
 ; shared register convention). This file holds the top-level ActionStatus
 ; dispatcher and every state it can transition to/through, plus the
 ; move-resolution helpers that decide what a target tile does to a move:
@@ -71,9 +71,9 @@ ShowPlayer:
 ;   0 = ACTION_IDLE        -> ActionIdle
 ;   1 = ACTION_MOVE        -> ActionMove
 ;   2 = ACTION_FALL        -> ActionFall
-;   3 = ACTION_PUSH  -> ActionPush
-;   4 = ACTION_INTRO       -> ActionIntro  (level intro star animation)
-;   5 = ACTION_SWITCH      -> ActionIntro  (player switch star animation; same body)
+;   3 = ACTION_PUSH        -> ActionPush
+;   4 = ACTION_ATTACK      -> ActionAttack
+;   5 = ACTION_DEATH       -> ActionDeath
 ;
 ; Only one action runs at a time.  Each action handler is responsible for
 ; resetting ActionStatus to ACTION_IDLE when it completes.
@@ -111,11 +111,9 @@ PlayerLogic:
     dc.w        ActionIdle-.i           ; state 0: idle
     dc.w        ActionMove-.i           ; state 1: moving
     dc.w        ActionFall-.i           ; state 2: falling
-    dc.w        ActionPush-.i     ; state 3: push animation
-    dc.w        ActionIdle-.i           ; state 4: legacy intro (now idle)
-    dc.w        ActionIdle-.i           ; state 5: legacy switch (now idle)
-    dc.w        ActionAttack-.i         ; state 6: cane strike attack animation
-    dc.w        ActionDeath-.i          ; state 7: player collapse death animation
+    dc.w        ActionPush-.i           ; state 3: push animation
+    dc.w        ActionAttack-.i         ; state 4: cane strike attack animation
+    dc.w        ActionDeath-.i          ; state 5: player collapse death animation
 
 
 
@@ -196,7 +194,7 @@ ActionPush:
     moveq       #0,d0
     move.w      Actor_Delta(a3),d0    ; current angle (high word of fixed-point delta)
     add.w       #SINE_270,d0          ; start at the 270-degree (trough) point
-    and.w       #SINE_RANGE-1,d0      ; wrap to table bounds
+    and.w       #SINE_ANGLES-1,d0     ; wrap to table bounds
     add.w       d0,d0                 ; word index (table entries are words)
     move.w      (a0,d0.w),d0          ; d0 = quadratic value (-SINE_RANGE..+SINE_RANGE)
 
@@ -206,7 +204,6 @@ ActionPush:
     add.w       #(TILE_WIDTH/2),d0    ; shift to 0..16 range
 
     ; Apply direction sign
-    move.w      Actor_DirectionX(a3),d4
     tst.w       Actor_DirectionX(a3)
     bpl.s       .positive
     neg.w       d0                    ; negative direction: negate offset
@@ -488,7 +485,7 @@ ActionIdle:
 ;==============================================================================
 ; CheckLevelDone  -  Scan GameMap for remaining enemies
 ;
-; Walks the entire GameMap (WALL_PAPER_SIZE cells) looking for any cell that
+; Walks the entire GameMap (CurrentMapSize cells) looking for any cell that
 ; contains BLOCK_ENEMYFALL or BLOCK_ENEMYFLOAT.  If found,
 ; sets d3 = 1.  If none are found, d3 = 0 (level complete).
 ;
@@ -557,11 +554,11 @@ PlayerMoveLogic:
 
     ; Calculate map offsets for current and next positions
     move.w      Player_Y(a4),d0
-    mulu        #WALL_PAPER_WIDTH,d0
+    mulu        #MAP_WIDTH,d0
     add.w       Player_X(a4),d0        ; d0 = current cell offset
 
     move.w      Player_NextY(a4),d1
-    mulu        #WALL_PAPER_WIDTH,d1
+    mulu        #MAP_WIDTH,d1
     add.w       Player_NextX(a4),d1    ; d1 = next cell offset
 
     move.b      (a0,d0.w),d2           ; d2 = current cell type
@@ -631,7 +628,7 @@ PlayerFallLogic:
 
     ; Calculate map offset for current position (post-move)
     move.w      Player_Y(a4),d0
-    mulu        #WALL_PAPER_WIDTH,d0
+    mulu        #MAP_WIDTH,d0
     add.w       Player_X(a4),d0
     move.w      d0,d1
 
@@ -652,14 +649,14 @@ PlayerFallLogic:
     addq.w      #1,d4                 ; row below
     cmp.w       CurrentMapHeight(a5),d4
     bge         .found                ; reached bottom of map
-    move.b      WALL_PAPER_WIDTH(a0,d1.w),d2 ; cell below
+    move.b      MAP_WIDTH(a0,d1.w),d2 ; cell below
     beq.s       .air_below            ; empty air: keep falling
     cmp.b       #BLOCK_PLAYERSTART,d2
     beq.s       .air_below            ; player spawn marker: air, keep falling
     bra         .found                ; solid/ladder: found landing
 .air_below:
     addq.w      #1,d3
-    add.w       #WALL_PAPER_WIDTH,d1
+    add.w       #MAP_WIDTH,d1
     bra         .findfloor
 
 .found
@@ -759,7 +756,7 @@ PlayerIdle:
     ; --- Ground / Platform controls ---
     btst        #CONTROLB_RIGHT,d0
     beq.s       .check_left
-    cmp.w       #WALL_PAPER_WIDTH-1,Player_X(a4) ; already in column 19?
+    cmp.w       #MAP_WIDTH-1,Player_X(a4) ; already in column 19?
     bge.s       .check_left                      ; yes -> clamp right (cannot move right)
     move.w      #1,Player_DirectionX(a4)
     bra         .move                            ; right pressed -> move right
@@ -785,7 +782,7 @@ PlayerIdle:
 
     ; Up pressed: only allowed if currently on a ladder
     move.w      Player_Y(a4),d1
-    mulu        #WALL_PAPER_WIDTH,d1
+    mulu        #MAP_WIDTH,d1
     add.w       Player_X(a4),d1            ; d1 = map offset of current cell
 
     lea         GameMap(a5),a0
@@ -814,7 +811,7 @@ PlayerIdle:
 .ladder_check_right
     btst        #CONTROLB_RIGHT,d0
     beq.s       .ladder_check_left
-    cmp.w       #WALL_PAPER_WIDTH-1,Player_X(a4)
+    cmp.w       #MAP_WIDTH-1,Player_X(a4)
     bge.s       .ladder_check_left
     move.w      #1,Player_DirectionX(a4)
     bra         .move
@@ -867,7 +864,7 @@ PlayerIdle:
 PlayerShowIdleAnim:
     ; Check if on a ladder FIRST
     move.w      Player_Y(a4),d1
-    mulu        #WALL_PAPER_WIDTH,d1
+    mulu        #MAP_WIDTH,d1
     add.w       Player_X(a4),d1       ; map offset
 
     lea         GameMap(a5),a0
@@ -1046,7 +1043,7 @@ PlayerMoveEmpty:
     ; Moving vertically (UP or DOWN) into BLOCK_EMPTY:
     ; Only allowed if the player is currently on a ladder.
     move.w      Player_Y(a4),d1
-    mulu        #WALL_PAPER_WIDTH,d1
+    mulu        #MAP_WIDTH,d1
     add.w       Player_X(a4),d1       ; d1 = map offset of current cell
     move.b      (a0,d1.w),d1          ; d1 = cell type at current position
     cmp.b       #BLOCK_LADDER,d1
@@ -1114,9 +1111,9 @@ PlayerDoMove:
     bpl.s       .x_not_neg
     moveq       #0,d0                 ; clamp at 0
 .x_not_neg
-    cmp.w       #WALL_PAPER_WIDTH-1,d0
+    cmp.w       #MAP_WIDTH-1,d0
     ble.s       .x_not_past_right
-    move.w      #WALL_PAPER_WIDTH-1,d0 ; clamp at 19
+    move.w      #MAP_WIDTH-1,d0 ; clamp at 19
 .x_not_past_right
     move.w      Player_DirectionY(a4),d1
     add.w       Player_Y(a4),d1       ; d1 = target Y tile

@@ -119,28 +119,28 @@ JMPINDEX           MACRO
 ;==============================================================================
 ; RANDOMWORD  -  16-bit pseudo-random number generator
 ;
-; Generates a new 16-bit pseudo-random value in the upper word of d0.
-; Uses a simple multiply-add LFSR/LCG hybrid seeded from RandomSeed(a5).
+; A multiply-add generator seeded from RandomSeed(a5). It is neither a
+; textbook LCG (no fixed multiplier and increment on the whole seed) nor an
+; LFSR. The engine's three Galois LFSRs are VHS_LFSR_STEP (VHS rewind) and
+; two written inline: the loading screen's bar heights (loading.asm, which
+; steps RandomSeed itself as an LFSR) and the Game Complete star field.
 ;
-; Algorithm:
-;   seed = (seed_hi * $9D3D) + seed       (treating seed as two 16-bit halves)
-;   result = upper 16 bits of new seed
+; Algorithm (32-bit seed split into two 16-bit halves, seed = hi:lo):
+;   seed   = (seed_lo * $9D3D) + swap(seed)     ; swap(seed) = lo:hi
+;   result = upper 16 bits of the new seed
 ;
-; Destroys: d0 (result in upper word, lower word = 0 after SWAP/CLR)
+; Returns:   d0.w = random value (upper word of d0 cleared)
 ; Preserves: d1 (saved/restored on stack)
 ; Requires:  a5 = Variables base pointer
-;
-; After the macro, d0 contains the 16-bit random value in its LOW word
-; (due to the SWAP at the end).
 ;==============================================================================
 
 RANDOMWORD         MACRO
                    move.l     d1,-(sp)           ; preserve d1
                    move.l     RandomSeed(a5),d0  ; load current 32-bit seed
                    move.l     d0,d1
-                   swap.w     d0                 ; d0 = high word of seed
-                   mulu.w     #$9D3D,d1          ; multiply low word by magic constant
-                   add.l      d1,d0              ; add to produce new seed
+                   swap.w     d0                 ; d0 = lo:hi (halves swapped)
+                   mulu.w     #$9D3D,d1          ; d1 = seed_lo * $9D3D
+                   add.l      d1,d0              ; new seed = d1 + swap(seed)
                    move.l     d0,RandomSeed(a5)  ; store new seed
                    clr.w      d0                 ; clear low word
                    swap.w     d0                 ; d0.w = random value (was high word)

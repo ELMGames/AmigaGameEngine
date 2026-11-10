@@ -149,7 +149,7 @@ QuitToOS:
     move.l     4.w,a6              ; ExecBase
     move.l     CustomLevelAllocPtr(a5),a1
     move.l     CustomLevelAllocSize(a5),d0
-    jsr        -$D2(a6)            ; _LVOFreeMem
+    jsr        _LVOFreeMem(a6)     ; defined in customlevel.asm
 .no_custom_mem:
     ENDC
 

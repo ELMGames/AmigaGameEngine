@@ -323,7 +323,7 @@ GameRunQuitFade:
 
     bsr         PaletteFadeTick         ; returns d0=1 once cpPal has reached black
     tst.w       d0
-    beq        .exit_skip                   ; freeze player/actors while fading
+    beq         .skip_frame             ; freeze player/actors while fading
 
     ; Screen is 100% black: clean up and transition
     clr.w       QuitFadeActive(a5)
@@ -340,7 +340,6 @@ GameRunQuitFade:
     clr.b       KEY_P(a0)
     clr.w       DebugOverlayActive(a5)
     clr.w       PrevDebugDrawn(a5)
-;    move.w      #0,LevelId(a5)
     move.w      #TITLE_SETUP,GameStatus(a5)
     bra         .skip_frame
 .no_quit_fade:
@@ -360,8 +359,6 @@ GameRunQuitFade:
     move.w      #FADE_SPEED_SLOW,d0   ; 15 steps x 4 frames = ~1.2s (PAL)
     bsr         PaletteFadeOut
     move.w      #1,QuitFadeActive(a5)
-    bra         .skip_frame
-.exit_skip:
     bra         .skip_frame
 .no_esc:
     moveq       #0,d0                   ; continue the frame

@@ -75,7 +75,7 @@ Out of the box, it features a complete boot-to-gameplay pipeline: custom OS take
 * **Oxygen Depletion & Collectibles:** Submerged breath depletion meter with rising air bubbles, drowning hazards, and collectible oxygen refill canisters.
 * **Interactive Slow Mode & Step Debugging:** Press **S** at any time to pause the gameloop and enter SLOW MODE with a real-time on-screen telemetry overlay. Tap **A** to advance the engine exactly one frame, or hold **A** to advance at full speed.
 * **VHS Rewind & Undo Subsystem:** Press **F9** to step backward through a 16-entry circular undo snapshot buffer (`engine/gameplay/undo.asm`, `engine/effects/vhs_rewind.asm`), restoring player, crate, enemy, friend, oxygen, and rising water state with an authentic 40-frame (0.8 s PAL) VHS tape rewind effect (top/bottom tracking snow bands, horizontal LFSR line-smear tear, and `REW <<` OSD overlay) while preserving all composited actors on screen.
-* **Randomized Colored Block Screen Wipes:** Transitions between loading, menus, and levels (`engine/graphics/screenutils.asm`, `engine/gameplay/levelutils.asm`) render a 20×9 grid of `16×24` beveled 3D blocks using a randomized palette theme per wipe (seeded via Agnus `VHPOSR` beam position + LFSR), followed by a short hold before advancing.
+* **Randomized Colored Block Screen Wipes:** Transitions between loading, menus, and levels (`engine/graphics/screenutils.asm`, `engine/gameplay/levelutils.asm`) render a 20×9 grid of `16×24` beveled 3D blocks using a randomized palette theme per wipe (`RANDOMWORD` mixed with the Agnus `VHPOSR` beam position), followed by a short hold before advancing.
 * **Efficient Memory Model:** Strict separation between Chip RAM (DMA-accessible copper lists, screen bitplanes, audio, and BOB buffers) and Fast RAM (code, state tables, level logic, and BSS variables). Runs comfortably in **512 KB Chip RAM** with about **175 KB free headroom**, in Chip sections of 80 KB or less so it still loads when Workbench has fragmented Chip RAM.
 * **Audio & Soundtrack:** Built-in 4-channel ProTracker playback engine powered by Frank Wille's PTPlayer with 11 synthesised sound effects (plus the intro fanfare) and a complete 3-track soundtrack composed by **JAM (`h3xaflight`)**:
   * Title Theme: *Heatwave Cruise*
@@ -103,15 +103,15 @@ The root `main.asm` chooses which game is built:
     include "games/duck_rescue/main.asm"    ; or games/starter/main.asm
 ```
 
-Press **F5** in VS Code: the `amigaassembly: build` task assembles and links it to `uae/dh0/main`, then the selected launch profile boots it in WinUAE or FS-UAE. The A500, Workbench and FS-UAE profiles run `build + ADF` instead, which also writes a bootable floppy image, `adfs/game.adf` (see below). `Ctrl+Shift+B` builds without running. F5 assembles code only: after changing art, palettes or levels, regenerate the assets with `python build.py --assets`.
+Press **F5** in VS Code: the `amigaassembly: build` task assembles and links it to `uae/dh0/main`, then the selected launch profile boots it in WinUAE or FS-UAE. The A500, Workbench and FS-UAE profiles run `build + ADF` instead, which also writes a bootable floppy image, `adfs/game.adf` (see below). `Ctrl+Shift+B` builds without running. F5 assembles code only: after changing art, palettes or levels, regenerate the assets with `python tools/build.py --assets`.
 
 ### Building from the Command Line
 
 ```powershell
-python build.py --game duck_rescue  # Export Tiled levels + convert assets + assemble + link to uae/dh0/main
-python build.py --assets            # Regenerate all converted assets (art, levels, SFX, data tables)
-python build.py --check             # Run the test suite first; build only if it passes
-python build.py --game X --explain  # On a failed build, list every missing contract symbol
+python tools/build.py --game duck_rescue  # Export Tiled levels + convert assets + assemble + link to uae/dh0/main
+python tools/build.py --assets            # Regenerate all converted assets (art, levels, SFX, data tables)
+python tools/build.py --check             # Run the test suite first; build only if it passes
+python tools/build.py --game X --explain  # On a failed build, list every missing contract symbol
 ```
 
 The compiled Amiga executable lands by default at `uae/dh0/main` (`--out` changes it). The launch profiles mount `uae/dh0` as `dh0:`, and the same file runs on a real Amiga.
@@ -119,7 +119,7 @@ The compiled Amiga executable lands by default at `uae/dh0/main` (`--out` change
 ### A Bootable Floppy Image
 
 ```powershell
-python make_adf.py                  # release build of the current game -> adfs/game.adf
+python tools/make_adf.py                  # release build of the current game -> adfs/game.adf
 ```
 
 The disk holds the game, its Workbench icon and an `S/Startup-Sequence`. It boots on its own from `DF0:` or a Gotek, and the Workbench launch profile puts it in `DF1:` next to a Workbench 1.3 disk, so the game appears as a disk icon. Put your own Workbench disk image in `adfs/` (see [`adfs/README.md`](adfs/README.md)): like the ROMs, it is copyrighted, so Git ignores it.
@@ -179,7 +179,7 @@ Starting a new game? Copy `games/starter/` and follow the [Making a Game guide](
 
 ### Memory Footprint
 
-Section sizes as `vasm` reports them in the build terminal (F5 or `python build.py`); `games/duck_rescue/tools/chip_ram_report.py` gives a per-file breakdown:
+Section sizes as `vasm` reports them in the build terminal (F5 or `python tools/build.py`); `games/duck_rescue/tools/chip_ram_report.py` gives a per-file breakdown:
 
 | Section | Target RAM | Allocation | Description |
 | :--- | :--- | :---: | :--- |
@@ -246,7 +246,7 @@ All game assets are processed deterministically via scripts in [`games/duck_resc
    - Builds `sin.bin` and `quadratic.bin` from the readable sources `assets/data/sin.txt` and `quadratic.txt` on every build.
 
 6. **Loading Screen & ZX0 (`convert_loading_screen.py`, `engine/system/zx0_faster.asm`)**:
-   - Converts the 32-colour loading picture to 5 interleaved bitplanes (40,000 bytes) and compresses it with Einar Saukas' ZX0 (v2) to 19,634 bytes. Run it by hand when the picture changes; `build.py` does not run it. It needs `amigeconv` and `zx0`, which are not included: see `get_amigeconv.txt` and `get_zx0.txt` in `games/duck_rescue/tools/`.
+   - Converts the 32-colour loading picture to 5 interleaved bitplanes (40,000 bytes) and compresses it with Einar Saukas' ZX0 (v2) to 19,634 bytes. Run it by hand when the picture changes; `tools/build.py` does not run it. It needs `amigeconv` and `zx0`, which are not included: see `get_amigeconv.txt` and `get_zx0.txt` in `games/duck_rescue/tools/`.
    - At boot the 68000 decompresses it from Fast RAM straight into Chip RAM.
 
 ---
@@ -256,14 +256,15 @@ All game assets are processed deterministically via scripts in [`games/duck_resc
 ```
 .
 ├── main.asm                        # Root build file: includes the game to build (F5 in VS Code)
-├── build.py                        # Command-line build driver (assets, --check, --explain)
-├── make_adf.py                     # Bootable floppy image of the current game -> adfs/game.adf
+├── tools/
+│   ├── build.py                    # Command-line build driver (assets, --check, --explain)
+│   └── make_adf.py                 # Bootable floppy image of the current game -> adfs/game.adf
 ├── .vscode/                        # Build tasks and launch profiles: WinUAE (Kickstart 1.3, AROS, NTSC,
 │                                   #   A1200, A4000, Workbench + DF1:) and FS-UAE (macOS, Linux, Windows)
-├── adfs/                           # game.adf (made by make_adf.py) and your own Workbench disk (ignored by Git)
+├── adfs/                           # game.adf (made by tools/make_adf.py) and your own Workbench disk (ignored by Git)
 ├── roms/                           # Your own Kickstart ROMs (ignored by Git; see roms/README.md)
 ├── uae/dh0/                        # The emulated hard drive: main, starter, their icons, S/startup-sequence
-├── docs/                           # Companion guides (PDF) and the book cover
+├── docs/                           # Companion guides (Markdown and PDF), THIRD_PARTY_NOTICES.md, the book cover
 ├── engine/                         # Reusable bare-metal 68000 game engine
 │   ├── audio/                      # Audio driver & PTPlayer integration (audio.asm, ptplayer.asm, zxsfx.asm)
 │   ├── core/                       # Engine macros (macros.asm)
@@ -296,4 +297,4 @@ All game assets are processed deterministically via scripts in [`games/duck_resc
 
 ## Third-Party Code
 
-ptplayer and the ZX0 decompressor keep their own terms: see `THIRD_PARTY_NOTICES.md`.
+ptplayer and the ZX0 decompressor keep their own terms: see [`docs/THIRD_PARTY_NOTICES.md`](docs/THIRD_PARTY_NOTICES.md).

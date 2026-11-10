@@ -331,12 +331,6 @@ TitleSetup:
 TitleRun:
     PUSHALL
 
-    ; Advance the fade-in armed by TitleSetup, if still running (commented out).
-;    tst.w       PalFadeActive(a5)
-;    beq         .no_fade_tick
-;    bsr         PaletteFadeTick
-;.no_fade_tick
-
     bsr         UpdateControls
 
     ;--------------------------------------------------------------------------
@@ -347,8 +341,6 @@ TitleRun:
     bsr         TitlePasswordInput      ; cursor blink, backspace, A-Z level password entry
     bsr         TitleMenuNavigate       ; up/down menu, left/right level select
     bsr         TitleMenuSelect         ; fire/return: play, credits or instructions
-.no_fire
-.done
     POPALL
     rts
 

@@ -244,9 +244,8 @@ test_Def:
     dc.l    test_BridgeList             ; Bridge zones table
     dc.l    test_OxygenList             ; Oxygen refills table
 
-    ; --- Banner Text & Access Code ---
+    ; --- Banner Text ---
     dc.l    test_TitleStr               ; Null-terminated title string
     dc.l    test_SubTitleStr            ; Null-terminated subtitle string
-    dc.b    "ACORN1",0,0                ; 6-char access password + padding
     even
 

@@ -109,6 +109,23 @@ if the game has none of that kind of entity). A game that does not include
 already has an engine default and only needs overriding if you want a
 different pool size.
 
+A game with built-in levels also defines `LEVEL_TABLE_COUNT`, the number of
+entries in its `LevelTable`. Work it out from the table itself, so that
+adding a level never means editing an engine file:
+
+```asm
+LevelTable:
+    dc.l       Level_01_Def
+    dc.l       Level_02_Def
+LevelTableEnd:
+    dc.l       0                       ; null terminator
+LEVEL_TABLE_COUNT = (LevelTableEnd-LevelTable)/4
+```
+
+`gamestatus.asm`, `levelutils.asm`, `levelcomplete.asm` and `titlescreen.asm`
+read it for the level warp keys, the title-screen selector and the
+end-of-campaign check.
+
 ## 5. Entry points: exactly two
 
 `engine_main.asm`'s own header comment names them explicitly

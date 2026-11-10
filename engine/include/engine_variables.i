@@ -37,7 +37,7 @@ CurrentMapSize:       rs.w    1   ; total cells in current level map (width * he
 ;------------------------------------------------------------------------------
 GameMap:              rs.b    MAX_GAME_MAP_SIZE   ; live game map (up to 1280 bytes)
                       rs.w    0                   ; alignment pad to longword boundary
-RandomSeed:           rs.l    1   ; LFSR random number seed
+RandomSeed:           rs.l    1   ; PRNG state: RANDOMWORD, and the loading screen's LFSR
 
 ;------------------------------------------------------------------------------
 ; Game flow & State machine
@@ -123,8 +123,8 @@ DirtyTileList:        rs.w    MAX_GAME_MAP_SIZE ; compact dirty list: (X<<8)|Y
 WipePattern:          rs.w    1
 WipeTilesDone:        rs.w    1
 WipeHoldTick:         rs.w    1
-WipeTileX:            rs.b    WALL_PAPER_SIZE
-WipeTileY:            rs.b    WALL_PAPER_SIZE
+WipeTileX:            rs.b    WIPE_GRID_SIZE
+WipeTileY:            rs.b    WIPE_GRID_SIZE
                       rs.w    0                 ; alignment pad
 
 ;------------------------------------------------------------------------------

@@ -4,7 +4,7 @@
 ; player_water.asm  -  Oxygen, Drowning, Respawn & Rescue Pickups
 ;==============================================================================
 ;
-; Part of the player module (one of player_fsm/_physics/_combat/_water.asm; all follow the
+; Part of the player module (one of player_fsm/_combat/_water.asm; all follow the
 ; shared register convention).
 ;
 ;   PlayerUpdateOxygen - per-frame submersion detection, lung drain / refill,
@@ -234,13 +234,13 @@ PlayerRespawn:
 
     ; Clear old source cell (Player_X, Player_Y)
     move.w      Player_Y(a4),d0
-    mulu        #WALL_PAPER_WIDTH,d0
+    mulu        #MAP_WIDTH,d0
     add.w       Player_X(a4),d0
     bsr         RestoreVacatedTile
 
     ; Clear old destination cell (Player_NextX, Player_NextY)
     move.w      Player_NextY(a4),d0
-    mulu        #WALL_PAPER_WIDTH,d0
+    mulu        #MAP_WIDTH,d0
     add.w       Player_NextX(a4),d0
     bsr         RestoreVacatedTile
 
@@ -285,7 +285,7 @@ PlayerRespawn:
     ; Mark player presence at new tile position in GameMap
     lea         GameMap(a5),a0
     move.w      Player_Y(a4),d0
-    mulu        #WALL_PAPER_WIDTH,d0
+    mulu        #MAP_WIDTH,d0
     add.w       Player_X(a4),d0
     move.b      Player_BlockId(a4),(a0,d0.w)
 
@@ -376,7 +376,7 @@ FindDryPlatformAboveWater:
 
     ; Check if (col, row) is solid in GameMap
     move.w      d0,d2
-    mulu.w      #WALL_PAPER_WIDTH,d2
+    mulu.w      #MAP_WIDTH,d2
     add.w       d1,d2
     lea         GameMap(a5),a0
     cmp.b       #BLOCK_SOLID,(a0,d2.w)
@@ -385,7 +385,7 @@ FindDryPlatformAboveWater:
     ; Found solid ground tile! Check if cell directly above (row - 1) is empty/air
     move.w      d0,d3
     subq.w      #1,d3
-    mulu.w      #WALL_PAPER_WIDTH,d3
+    mulu.w      #MAP_WIDTH,d3
     add.w       d1,d3
     move.b      (a0,d3.w),d4
     beq.s       .dry_air_ok             ; cell above is open air (0) -> valid standing spot!

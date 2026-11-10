@@ -30,7 +30,7 @@
 ;   6 Map layers: Scenery, Platforms, Ladders, Entities, Foreground, Water.
 ;   Tileset: Modular TSX tilesets (16x16 pixel tiles).
 ;   Python export tool: games/<game>/tools/export_level.py.
-;   Build system: python build.py --game <game> -> uae/dh0/main.
+;   Build system: python tools/build.py --game <game> -> uae/dh0/main.
 ;
 ; Page 3 -- "GAMEPLAY & GAME KEYS"
 ;   Four headings and ten lines supplied by the game (GameInstructionsHeadings,

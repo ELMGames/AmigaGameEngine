@@ -54,8 +54,8 @@
 
                           rsreset
 Player_Status:            rs.w    1   ; 0=inactive, 1=active
-Player_X:                 rs.w    1   ; tile column (0..WALL_PAPER_WIDTH-1)
-Player_Y:                 rs.w    1   ; tile row    (0..WALL_PAPER_HEIGHT-1)
+Player_X:                 rs.w    1   ; tile column (0..MAP_WIDTH-1)
+Player_Y:                 rs.w    1   ; tile row    (0..CurrentMapHeight-1)
 Player_XDec:              rs.w    1   ; sub-tile horizontal pixel offset (+/-)
 Player_YDec:              rs.w    1   ; sub-tile vertical   pixel offset (+/-)
 Player_ActionCount:       rs.w    1   ; frames remaining in current move (16 per tile)
@@ -187,8 +187,7 @@ LevelDef_HazardList:      rs.l    1   ; Pointer to hazard zones list
 LevelDef_BridgeList:      rs.l    1   ; Pointer to bridge zones list
 LevelDef_PickupList:      rs.l    1   ; Pointer to oxygen refills list
 
-; --- Banner Text & Access Code ---
+; --- Banner Text ---
 LevelDef_TitleStr:        rs.l    1   ; Pointer to null-terminated title string
 LevelDef_SubTitleStr:     rs.l    1   ; Pointer to null-terminated subtitle string
-LevelDef_AccessCode:      rs.b    8   ; 6-char level access password + 2 null/pad bytes
 LevelDef_Sizeof:          rs.w    0   ; Total structure size

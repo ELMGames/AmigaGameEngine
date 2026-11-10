@@ -87,9 +87,9 @@ LevelInit:
     ; -------------------------------------------------------------------------
     ; 1. Establish Map Geometry & Default Camera Boundaries
     ; -------------------------------------------------------------------------
-    move.w        #WALL_PAPER_WIDTH,CurrentMapWidth(a5)
-    move.w        #WALL_PAPER_HEIGHT,CurrentMapHeight(a5)
-    move.w        #WALL_PAPER_SIZE,CurrentMapSize(a5)
+    move.w        #MAP_WIDTH,CurrentMapWidth(a5)
+    move.w        #DEFAULT_MAP_ROWS,CurrentMapHeight(a5)
+    move.w        #DEFAULT_MAP_SIZE,CurrentMapSize(a5)
 
     clr.l         CurrentLevelDef(a5)    ; default: no custom LevelDef active
     move.w        #0,LevelMinCameraY(a5) ; default min vertical camera scroll
@@ -237,7 +237,7 @@ LevelIntroSetup:
 
     ; Check if start position is on a ladder
     move.w      Player_Y(a4),d1
-    mulu        #WALL_PAPER_WIDTH,d1
+    mulu        #MAP_WIDTH,d1
     add.w       Player_X(a4),d1
     lea         GameMap(a5),a0
     move.b      (a0,d1.w),d1
@@ -301,8 +301,8 @@ LevelIntroSetup:
 ;                       Builds next level into NonDisplayScreen, reverses WipeTileX/Y,
 ;                       and advances to LEVEL_REVEAL (5).
 ;
-; Fill routines   - each fills WipeTileX and WipeTileY with 126 tile coords
-;                   (WALL_PAPER_SIZE = 14x9) in the desired visual order.
+; Fill routines   - each fills WipeTileX and WipeTileY with 180 block coords
+;                   (WIPE_GRID_SIZE = 20 x 9) in the desired visual order.
 ;
 ; WipeOppositeTable - byte lookup: given a pattern index, returns the index of
 ;                     its directional inverse for use by a future reveal effect.
@@ -353,12 +353,12 @@ LevelTransitionRun:
     ; LEVEL_WIPE phase: blit WIPE_SPEED tiles per frame, then pause 30 frames
     ; -----------------------------------------------------------------------
     move.w      WipeTilesDone(a5),d7
-    cmp.w       #WALL_PAPER_SIZE,d7
+    cmp.w       #WIPE_GRID_SIZE,d7
     bge.s       .wipe_pause_hold
 
     moveq       #WIPE_SPEED-1,d6
 .wipe_loop
-    cmp.w       #WALL_PAPER_SIZE,d7
+    cmp.w       #WIPE_GRID_SIZE,d7
     bge         .wipe_blit_done
 
     clr.l       d0
@@ -379,7 +379,7 @@ LevelTransitionRun:
 
 .wipe_pause_hold
     ; Hold full wipe screen for 15 frames before moving on
-    cmp.w       #WALL_PAPER_SIZE+15,d7
+    cmp.w       #WIPE_GRID_SIZE+15,d7
     bge.s       .wipe_done
     addq.w      #1,WipeTilesDone(a5)
     rts
@@ -476,10 +476,9 @@ LevelTransitionRun:
     ; Start level music as the visual fade-in begins
     bsr         AudioPlayLevelMusic
 
-   ; bsr         VhsInit                ; arm VHS distortion region (PAL/NTSC)
     move.l      #cpGame,COP1LC(a6)      ; switch to the fully-prepared game copper
     move.w      #0,COPJMP1(a6)
-    move.w      #DMAF_SETCLR|DMAF_RASTER,DMACON(a6) ; re-enable bitplane DMA (cpPal is black, completely seamless!)
+    move.w      #DMAF_SETCLR|DMAF_RASTER,DMACON(a6) ; re-enable bitplane DMA (cpPal is black, so nothing shows)
     move.w      #LEVEL_REVEAL,GameStatus(a5)
     rts
 
@@ -493,8 +492,8 @@ LevelTransitionRun:
 
     ; Fade complete (d0 = 1) -> restore Copper sky gradient and transition to gameplay
     bsr         TilemapEnableCopperSky
-    clr.w       VBlankOverrunCount(a5)  ; clear multi-frame level load/reveal overruns before entering GAME_RUN!
-    move.w      #GAME_RUN,GameStatus(a5) ; transition to active gameplay!
+    clr.w       VBlankOverrunCount(a5)  ; clear multi-frame level load/reveal overruns before GAME_RUN
+    move.w      #GAME_RUN,GameStatus(a5) ; transition to active gameplay
 .reveal_fading:
     rts
 

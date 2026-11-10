@@ -28,10 +28,10 @@ The starter takes over the machine, paints a Copper gradient behind a 5-bitplane
 
 ```powershell
 xcopy /E /I games\starter games\my_game
-python build.py --game my_game
+python tools/build.py --game my_game
 ```
 
-`build.py --game my_game` assembles `games/my_game/main.asm` from the repository root and links `uae/dh0/main`. Before it changes anything, edit the `incdir` lines in your `main.asm`: every `games/starter` becomes `games/my_game`.
+`tools/build.py --game my_game` assembles `games/my_game/main.asm` from the repository root and links `uae/dh0/main`. Before it changes anything, edit the `incdir` lines in your `main.asm`: every `games/starter` becomes `games/my_game`.
 
 To debug in VS Code, point the root `main.asm` (which the VS Code build task assembles) at your game: `include "games/my_game/main.asm"`.
 
@@ -127,7 +127,7 @@ Engine features are not switched on with flags. You include the file that implem
 **The fastest way to find what a subsystem needs is to let the build tell you.** Include the file and run:
 
 ```powershell
-python build.py --game my_game --explain
+python tools/build.py --game my_game --explain
 ```
 
 On a failed build, `--explain` lists every missing symbol, the engine file that needs it, and where Duck Rescue defines it. Copy or bind each one, then build again. The starter itself was built this way.
@@ -140,7 +140,7 @@ Levels are drawn in Tiled and exported by `export_level.py` into tile sheets, la
 
 For a new game:
 
-1. Copy `games/duck_rescue/tools/` and `game_palette.json` into your game. `build.py` runs the converters listed in its `ASSET_PIPELINE` from **your** game's `tools/` folder, by those file names, and skips any that are missing.
+1. Copy `games/duck_rescue/tools/` and `game_palette.json` into your game. `tools/build.py` runs the converters listed in its `ASSET_PIPELINE` from **your** game's `tools/` folder, by those file names, and skips any that are missing.
 2. Edit `game_palette.json` for your palette. No Python changes are needed for a new palette.
 3. Adapt the converters whose sheet sizes or layouts differ. The bitplane packing (`amiga_planar.py`) is shared and needs no changes.
 4. Bind the level data the engine falls back to: `LevelDefaultPalette`, `LevelDefaultPlatformMap`, `LevelDefaultEnemyList`, `LevelDefaultMusic`.
@@ -152,7 +152,7 @@ For a new game:
 | Contract tests | `python -m unittest discover tests` | missing hooks, game names in engine code, code that falls off the end of a file, a non-code entry point |
 | Converter goldens | the same command | a converter or source asset that changed by accident; accept intended changes with `python tests/update_golden.py` |
 | Executable goldens | the same command | any change to the generated code; accept with `python tests/update_golden.py --executables` *after* testing in the emulator |
-| Build with tests first | `python build.py --game my_game --check` | builds only if the tests pass |
+| Build with tests first | `python tools/build.py --game my_game --check` | builds only if the tests pass |
 
 To pin your game's converter outputs, run `python tests/update_golden.py --game my_game` once it builds. To pin its executable, add it to `GAMES` in `tests/test_build_golden.py` and run `python tests/update_golden.py --executables`.
 

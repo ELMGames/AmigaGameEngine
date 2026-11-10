@@ -4,7 +4,7 @@
 ; player_combat.asm  -  Cane Attack & Enemy Collision
 ;==============================================================================
 ;
-; Part of the player module (one of player_fsm/_physics/_combat/_water.asm; all follow the
+; Part of the player module (one of player_fsm/_combat/_water.asm; all follow the
 ; shared register convention).
 ;
 ;   PlayerStartAttack  - initiate cane swing attack animation
@@ -222,7 +222,7 @@ PlayerCheckAttackHit:
     ble.s       .next_enemy_hit             ; Cane Right <= Enemy Left -> no overlap
 
     ; -------------------------------------------------------------------------
-    ; Cane Connected! Stun the Enemy
+    ; Cane connected: stun the enemy
     ; -------------------------------------------------------------------------
     ; Sets stun timer to 200 frames (~4.0s PAL).
     ; While stunned, TilemapDrawEnemies renders orbiting dizzy stars,
@@ -242,8 +242,8 @@ PlayerCheckAttackHit:
 ;==============================================================================
 ; PlayerCheckEnemies  -  Test player collision against all active enemies
 ;
-; - If enemy is stunned (Enemy_StunTimer > 0): SAFE PASSAGE! (ignored, no damage)
-; - If enemy is active (Enemy_StunTimer == 0): LETHAL CONTACT!
+; - If enemy is stunned (Enemy_StunTimer > 0): safe passage (ignored, no damage)
+; - If enemy is active (Enemy_StunTimer == 0): lethal contact
 ;   Triggers ACTION_DEATH collapse animation and loss of life.
 ;
 ; In:       a5 = Variables base
@@ -299,7 +299,7 @@ PlayerCheckEnemies:
     tst.w       Enemy_Type(a1)
     beq.s       .next_contact
 
-    ; Safe passage: if stunned, lethal collision is deactivated!
+    ; Safe passage: a stunned enemy cannot hurt the player.
     ; Player can walk right through the enemy while dizzy stars orbit overhead.
     tst.w       Enemy_StunTimer(a1)
     bne.s       .next_contact
@@ -308,10 +308,10 @@ PlayerCheckEnemies:
     move.w      Enemy_Y(a1),d0
     add.w       #14,d0                      ; Enemy Bottom = Enemy_Y + 14
     cmp.w       d4,d0
-    ble.s       .next_contact               ; Enemy Bottom <= Player Top: skip!
+    ble.s       .next_contact               ; Enemy Bottom <= Player Top: skip
     sub.w       #12,d0                      ; Enemy Top = Enemy_Y + 2
     cmp.w       d5,d0
-    bge.s       .next_contact               ; Enemy Top >= Player Bottom: skip!
+    bge.s       .next_contact               ; Enemy Top >= Player Bottom: skip
 
     ; Active enemy in vertical range: test horizontal overlap
     move.w      Enemy_X(a1),d0
@@ -325,7 +325,7 @@ PlayerCheckEnemies:
     ble.s       .next_contact               ; Player Right <= Enemy Left
 
     ; -------------------------------------------------------------------------
-    ; Lethal Contact! Trigger Player Death Sequence
+    ; Lethal contact: start the player's death sequence
     ; -------------------------------------------------------------------------
     move.w      #ACTION_DEATH,ActionStatus(a5)
     move.w      #PLAYER_DEATH_DURATION,PlayerDeathTimer(a5) ; 48 frames (~960ms)

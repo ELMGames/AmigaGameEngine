@@ -3,13 +3,13 @@
 build.py - Assemble and link the Amiga Game Engine and example game.
 
 Usage:
-  python build.py                 build uae/dh0/main (default: Duck Rescue)
-  python build.py --assets        regenerate converted assets first
-  python build.py --game <name>   select game under games/ (default: duck_rescue)
-  python build.py --out my.exe    build to a custom output path
-  python build.py --tool-dir <dir> use vasm/vlink from a specific directory
-  python build.py --check         run the test suite first, build only if it passes
-  python build.py --explain       on failure, list missing symbols and where Duck Rescue defines them
+  python tools/build.py                 build uae/dh0/main (default: Duck Rescue)
+  python tools/build.py --assets        regenerate converted assets first
+  python tools/build.py --game <name>   select game under games/ (default: duck_rescue)
+  python tools/build.py --out my.exe    build to a custom output path
+  python tools/build.py --tool-dir <dir> use vasm/vlink from a specific directory
+  python tools/build.py --check         run the test suite first, build only if it passes
+  python tools/build.py --explain       on failure, list missing symbols and where Duck Rescue defines them
 
 Toolchain resolution order:
   1. --tool-dir argument
@@ -161,7 +161,7 @@ def main():
 
     args = parser.parse_args()
 
-    project_root = Path(__file__).resolve().parent
+    project_root = Path(__file__).resolve().parent.parent  # tools/ -> repository root
     os.chdir(project_root)
 
     tool_dir = find_toolchain(args.tool_dir)

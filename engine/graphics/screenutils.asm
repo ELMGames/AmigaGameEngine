@@ -311,7 +311,7 @@ WipeBlitTile:
 WipeFillTopBottom:
     lea         WipeTileX(a5),a0
     lea         WipeTileY(a5),a1
-    clr.w       d2                      ; write index (0..125)
+    clr.w       d2                      ; write index (0..179)
     moveq       #0,d1                   ; y = 0
 .row
     moveq       #0,d0                   ; x = 0
@@ -320,10 +320,10 @@ WipeFillTopBottom:
     move.b      d1,(a1,d2.w)
     addq.w      #1,d2
     addq.w      #1,d0
-    cmp.w       #WALL_PAPER_WIDTH,d0
+    cmp.w       #WIPE_GRID_COLS,d0
     blt         .col
     addq.w      #1,d1
-    cmp.w       #WALL_PAPER_HEIGHT,d1
+    cmp.w       #WIPE_GRID_ROWS,d1
     blt         .row
     rts
 
@@ -338,7 +338,7 @@ WipeFillBottomTop:
     lea         WipeTileX(a5),a0
     lea         WipeTileY(a5),a1
     clr.w       d2
-    moveq       #WALL_PAPER_HEIGHT-1,d1 ; y = 8, count down to 0
+    moveq       #WIPE_GRID_ROWS-1,d1 ; y = 8, count down to 0
 .row
     moveq       #0,d0
 .col
@@ -346,7 +346,7 @@ WipeFillBottomTop:
     move.b      d1,(a1,d2.w)
     addq.w      #1,d2
     addq.w      #1,d0
-    cmp.w       #WALL_PAPER_WIDTH,d0
+    cmp.w       #WIPE_GRID_COLS,d0
     blt         .col
     subq.w      #1,d1
     bpl         .row                    ; loop while y >= 0
@@ -371,10 +371,10 @@ WipeFillLeftRight:
     move.b      d1,(a1,d2.w)
     addq.w      #1,d2
     addq.w      #1,d1
-    cmp.w       #WALL_PAPER_HEIGHT,d1
+    cmp.w       #WIPE_GRID_ROWS,d1
     blt         .row
     addq.w      #1,d0
-    cmp.w       #WALL_PAPER_WIDTH,d0
+    cmp.w       #WIPE_GRID_COLS,d0
     blt         .col
     rts
 
@@ -389,7 +389,7 @@ WipeFillRightLeft:
     lea         WipeTileX(a5),a0
     lea         WipeTileY(a5),a1
     clr.w       d2
-    moveq       #WALL_PAPER_WIDTH-1,d0  ; x = 13, count down to 0
+    moveq       #WIPE_GRID_COLS-1,d0  ; x = 19, count down to 0
 .col
     moveq       #0,d1
 .row
@@ -397,7 +397,7 @@ WipeFillRightLeft:
     move.b      d1,(a1,d2.w)
     addq.w      #1,d2
     addq.w      #1,d1
-    cmp.w       #WALL_PAPER_HEIGHT,d1
+    cmp.w       #WIPE_GRID_ROWS,d1
     blt         .row
     subq.w      #1,d0
     bpl         .col                    ; loop while x >= 0
@@ -409,7 +409,7 @@ WipeFillRightLeft:
 ;
 ; Iterates over diagonals where x+y = constant (d = 0..21).
 ; For each diagonal, emits all tiles (x,y) where x = d-y, 0<=x<=13, 0<=y<=8.
-; 22 diagonals cover all 14x9 = 126 tiles exactly.
+; 28 diagonals cover all 20x9 = 180 blocks exactly.
 ;
 ; Destroys: d0-d3/a0-a1 (preserves everything else, including a5/a6)
 ;==============================================================================
@@ -425,17 +425,17 @@ WipeFillDiagTLBR:
     move.w      d3,d0
     sub.w       d1,d0                   ; x = d - y
     blt         .next_y                 ; x < 0: y exceeds diagonal start
-    cmp.w       #WALL_PAPER_WIDTH,d0    ; x >= 14: diagonal not yet reached
+    cmp.w       #WIPE_GRID_COLS,d0    ; x >= 20: diagonal not yet reached
     bge         .next_y
     move.b      d0,(a0,d2.w)
     move.b      d1,(a1,d2.w)
     addq.w      #1,d2
 .next_y
     addq.w      #1,d1
-    cmp.w       #WALL_PAPER_HEIGHT,d1
+    cmp.w       #WIPE_GRID_ROWS,d1
     blt         .scan
     addq.w      #1,d3
-    cmp.w       #WALL_PAPER_WIDTH+WALL_PAPER_HEIGHT-1,d3  ; while d < 22
+    cmp.w       #WIPE_GRID_COLS+WIPE_GRID_ROWS-1,d3  ; while d < 28
     blt         .diag
     rts
 
@@ -456,7 +456,7 @@ WipeFillDiagBRTL:
 ; WipeFillCenterOut  -  Fill wipe order: outward from centre by Chebyshev distance
 ;
 ; Emits tiles sorted ascending by max(|x-WIPE_CENTER_X|, |y-WIPE_CENTER_Y|).
-; Distance levels 0..7 (WIPE_MAX_DIST) cover the full 14x9 grid.
+; Distance levels 0..10 (WIPE_MAX_DIST) cover the full 20x9 grid.
 ;
 ; Destroys: d0-d5/a0-a1 (preserves everything else, including a5/a6)
 ;==============================================================================
@@ -493,10 +493,10 @@ WipeFillCenterOut:
     addq.w      #1,d2
 .skip_tile
     addq.w      #1,d0
-    cmp.w       #WALL_PAPER_WIDTH,d0
+    cmp.w       #WIPE_GRID_COLS,d0
     blt         .x_loop
     addq.w      #1,d1
-    cmp.w       #WALL_PAPER_HEIGHT,d1
+    cmp.w       #WIPE_GRID_ROWS,d1
     blt         .y_loop
     addq.w      #1,d5
     cmp.w       #WIPE_MAX_DIST+1,d5     ; while distance < 8
@@ -519,7 +519,7 @@ WipeFillCenterIn:
 ;==============================================================================
 ; WipeReverseBuffer  -  Reverse WipeTileX and WipeTileY arrays in place
 ;
-; Two-pointer swap: lo starts at 0, hi starts at WALL_PAPER_SIZE-1.
+; Two-pointer swap: lo starts at 0, hi starts at WIPE_GRID_SIZE-1.
 ; Both arrays are swapped in lockstep so they stay in sync.
 ;
 ; Destroys: d0-d2/a0-a1 (preserves everything else, including a5/a6)
@@ -529,7 +529,7 @@ WipeReverseBuffer:
     lea         WipeTileX(a5),a0
     lea         WipeTileY(a5),a1
     clr.w       d0                      ; lo index = 0
-    move.w      #WALL_PAPER_SIZE-1,d1   ; hi index = 125
+    move.w      #WIPE_GRID_SIZE-1,d1   ; hi index = 179
 .rev_loop
     cmp.w       d1,d0
     bge         .rev_done

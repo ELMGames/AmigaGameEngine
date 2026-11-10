@@ -980,12 +980,12 @@ LoadingBeginTitleWipe:
 LoadingWipeStep:
     PUSHM   d1-d7/a0-a1
     move.w  WipeTilesDone(a5),d7
-    cmp.w   #WALL_PAPER_SIZE,d7
+    cmp.w   #WIPE_GRID_SIZE,d7
     bge.s   .pause_hold
 
     moveq   #WIPE_SPEED-1,d6
 .loop
-    cmp.w   #WALL_PAPER_SIZE,d7
+    cmp.w   #WIPE_GRID_SIZE,d7
     bge     .batch_done
     moveq   #0,d0
     lea     WipeTileX(a5),a0
@@ -1004,7 +1004,7 @@ LoadingWipeStep:
 
 .pause_hold
     ; Hold full wipe screen for 15 frames before moving on
-    cmp.w   #WALL_PAPER_SIZE+15,d7
+    cmp.w   #WIPE_GRID_SIZE+15,d7
     bge.s   .done
     addq.w  #1,WipeTilesDone(a5)
     moveq   #0,d0

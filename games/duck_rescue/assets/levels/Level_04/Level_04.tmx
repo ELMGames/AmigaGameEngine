@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <map version="1.10" tiledversion="1.12.2" orientation="orthogonal" renderorder="right-down" width="20" height="13" tilewidth="16" tileheight="16" infinite="0" nextlayerid="7" nextobjectid="1">
  <properties>
-  <property name="access_code" value="ACORN4"/>
   <property name="initial_camera_y" type="int" value="0"/>
   <property name="initial_row" type="int" value="0"/>
   <property name="max_camera_y" type="int" value="0"/>

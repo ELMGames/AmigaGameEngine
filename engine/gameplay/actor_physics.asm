@@ -190,7 +190,7 @@ ActionFallActors:
     move.w      Actor_X(a3),d0
     move.w      Actor_Y(a3),d1
     move.w      d1,d2
-    mulu        #WALL_PAPER_WIDTH,d2
+    mulu        #MAP_WIDTH,d2
     add.w       d0,d2
     lea         DirtyTiles(a5),a0
     clr.b       (a0,d2.w)
@@ -305,7 +305,7 @@ PlayerMoveActor:
     move.w      #1,Actor_HasMoved(a3)  ; mark the actor as having moved (for ActionPush)
 
     ; Update GameMap: clear old cell, set new cell
-    mulu        #WALL_PAPER_WIDTH,d1
+    mulu        #MAP_WIDTH,d1
     add.w       d1,d0                 ; d0 = map offset of old cell
     add.w       d0,d2                 ; d2 = map offset of new cell
     lea         GameMap(a5),a0
@@ -443,14 +443,14 @@ ActorFall:
 
     ; Calculate map offset for actor's current position
     move.w      Actor_Y(a3),d0
-    mulu        #WALL_PAPER_WIDTH,d0
+    mulu        #MAP_WIDTH,d0
     add.w       Actor_X(a3),d0
     move.w      d0,d1                 ; d1 = current map offset
 
     moveq       #0,d3                 ; fall distance (tiles)
 
 .findfloor:
-    move.b      WALL_PAPER_WIDTH(a0,d1.w),d2  ; d2 = cell below
+    move.b      MAP_WIDTH(a0,d1.w),d2  ; d2 = cell below
     beq.s       .fallrow              ; empty: keep scanning down
     cmp.b       #BLOCK_LADDER,d2      ; ladder shaft: fall through!
     beq.s       .fallrow
@@ -462,7 +462,7 @@ ActorFall:
 
 .fallrow:
     addq.w      #1,d3                 ; fall one more row
-    add.w       #WALL_PAPER_WIDTH,d1  ; advance map offset one row
+    add.w       #MAP_WIDTH,d1  ; advance map offset one row
     bra.s       .findfloor
 
 .found:
@@ -527,7 +527,7 @@ PlayerKillActor:
     clr.w       Actor_Status(a3)        ; mark as dead
 
     ; Clear the actor's cell in GameMap
-    mulu        #WALL_PAPER_WIDTH,d1
+    mulu        #MAP_WIDTH,d1
     add.w       d1,d0
     lea         GameMap(a5),a0
     bsr         RestoreVacatedTile           ; restore ladder if cell has ladder, else empty
@@ -567,11 +567,11 @@ PlayerKillActor:
 ;==============================================================================
 
 PlayerGetNextBlock:
-    ; Check target column bounds: 0 <= X + DirX < WALL_PAPER_WIDTH
+    ; Check target column bounds: 0 <= X + DirX < MAP_WIDTH
     move.w      Player_X(a4),d0
     add.w       Player_DirectionX(a4),d0
     bmi.s       .blocked
-    cmp.w       #WALL_PAPER_WIDTH,d0
+    cmp.w       #MAP_WIDTH,d0
     bge.s       .blocked
 
     ; Check target row bounds: 0 <= Y + DirY < CurrentMapHeight(a5)
@@ -581,8 +581,8 @@ PlayerGetNextBlock:
     cmp.w       CurrentMapHeight(a5),d1
     bge.s       .blocked
 
-    ; Calculate byte offset: (Y + DirY) * WALL_PAPER_WIDTH + (X + DirX)
-    mulu        #WALL_PAPER_WIDTH,d1
+    ; Calculate byte offset: (Y + DirY) * MAP_WIDTH + (X + DirX)
+    mulu        #MAP_WIDTH,d1
     add.w       d1,d0                      ; d0 = byte offset into GameMap
 
     lea         GameMap(a5),a0
@@ -609,7 +609,7 @@ PlayerGetNextBlock:
 ; writes BLOCK_SOLID (5).
 ; Otherwise writes BLOCK_EMPTY (0).
 ;
-; In:  d0.w = tile map offset (Row * WALL_PAPER_WIDTH + Col)
+; In:  d0.w = tile map offset (Row * MAP_WIDTH + Col)
 ;      a0   = GameMap(a5) base pointer
 ; Preserves: d0, d2-d7, a0, a2-a6
 ; Destroys: d1, a1

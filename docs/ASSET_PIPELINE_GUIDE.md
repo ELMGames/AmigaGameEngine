@@ -6,7 +6,7 @@ This guide covers the formats the hardware expects, each converter, where its ou
 
 ## 1. The Pipeline at a Glance
 
-`build.py` runs the converters in the order of its `ASSET_PIPELINE` list, from the game's own `tools/` folder, before assembling:
+`tools/build.py` runs the converters in the order of its `ASSET_PIPELINE` list, from the game's own `tools/` folder, before assembling:
 
 | Order | Script | Runs | Produces |
 |---|---|---|---|
@@ -24,8 +24,8 @@ This guide covers the formats the hardware expects, each converter, where its ou
 `--assets` steps are slow or rarely change, so they run only when you ask:
 
 ```powershell
-python build.py                 # convert, assemble, link uae/dh0/main
-python build.py --assets        # also regenerate the --assets-only outputs
+python tools/build.py                 # convert, assemble, link uae/dh0/main
+python tools/build.py --assets        # also regenerate the --assets-only outputs
 ```
 
 A script that is missing from a game's `tools/` folder is skipped. One converter runs by hand: `convert_loading_screen.py` (5-plane loading screen, compressed with ZX0).
@@ -92,7 +92,6 @@ The exporter decides each layer's role from its name, so name layers clearly:
 | `initial_camera_y` / `initial_row` | centred on the player | start camera |
 | `min_camera_y`, `max_camera_y` | 0, rows × 16 − 216 | camera limits |
 | `cam_margin_top`, `cam_margin_bottom` | 16, 176 | camera dead zone |
-| `password` | `ACORN` + level number | level access code |
 
 Enemy objects take `type` (1–8), `speed` and `patrol_min_x`/`patrol_max_x` (default: 64 pixels either side of the object). The player start takes `dir` (`left` or `right`). Tiles in the tilesets carry collision through a `type` (`solid`, `ladder`, `hazard`, `platform` for one-way) or boolean `solid`/`ladder` properties.
 
@@ -175,7 +174,7 @@ Rules for converter code (see the Coding Conventions Guide):
 ## 10. Adding an Asset: Checklist
 
 1. **Source:** a PNG in palette colours, a Tiled layer or object, or a `.txt` table under `assets/`.
-2. **Converter:** an entry in the `convert_assets.py` manifest, an existing converter, or a new script added to `ASSET_PIPELINE` in `build.py`.
+2. **Converter:** an entry in the `convert_assets.py` manifest, an existing converter, or a new script added to `ASSET_PIPELINE` in `tools/build.py`.
 3. **Section:** Chip RAM if any DMA reads it, Fast RAM otherwise (§8).
 4. **Include:** `incbin` it in `main.asm` between a start label and, for variable-size data, an end label.
 5. **Goldens:** run `python tests/update_golden.py` and review the diff.

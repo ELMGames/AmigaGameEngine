@@ -129,9 +129,14 @@ LEVEL_FONT_STRIDE      = 10*SCREEN_DEPTH                ; bytes between level fo
 ;------------------------------------------------------------------------------
 ; Logical game map and tile grid dimensions
 ;------------------------------------------------------------------------------
-WALL_PAPER_WIDTH    = 20            ; 18 playable cols + 2 side border cols = 20 (320px)
-WALL_PAPER_HEIGHT   = 9             ; 8 playable rows + 1 bottom border row = 9 (216px)
-WALL_PAPER_SIZE     = WALL_PAPER_WIDTH*WALL_PAPER_HEIGHT ; 180 cells
+MAP_WIDTH           = 20            ; GameMap row stride: every level is 20 cells (320 px) wide
+DEFAULT_MAP_ROWS    = 9             ; map height LevelInit sets before the LevelDef gives the real one
+DEFAULT_MAP_SIZE    = MAP_WIDTH*DEFAULT_MAP_ROWS ; 180 cells
+
+; Screen-wipe grid: 16x24-pixel blocks covering the 320x216 window
+WIPE_GRID_COLS      = 20            ; 20 x 16 px = 320 px
+WIPE_GRID_ROWS      = 9             ; 9 x 24 px = 216 px
+WIPE_GRID_SIZE      = WIPE_GRID_COLS*WIPE_GRID_ROWS ; 180 blocks
 
 MAX_MAP_WIDTH       = 20
 MAX_MAP_HEIGHT      = 64            ; supports up to 64 rows
@@ -139,9 +144,6 @@ MAX_GAME_MAP_SIZE   = MAX_MAP_WIDTH*MAX_MAP_HEIGHT ; 1280 bytes
 TILE_GRID_HEIGHT    = 16            ; 16px tile height in TMX grid
 TILE_WIDTH          = 16            ; displayed pixel width (16px)
 
-MAP_WIDTH           = 18            ; playable tile columns (18)
-MAP_HEIGHT          = 8             ; playable tile rows (8)
-MAP_SIZE            = MAP_WIDTH*MAP_HEIGHT ; 144 bytes per level
 SORT_COUNT_BYTES    = MAX_MAP_HEIGHT*2 ; 64 Y-rows x 1 word each = 128 bytes
 
 ;------------------------------------------------------------------------------
@@ -233,7 +235,8 @@ LEVEL_SCREEN_ROWS        = RING_BUFFER_TOTAL_ROWS
 LEVEL_SCREEN_HEIGHT      = MAX_SCREEN_ROWS*TILEMAP_TILE_HEIGHT ; 800 scanlines (world level max height)
 LEVEL_SCREEN_SIZE        = RING_BUFFER_ALLOC_SIZE ; 81,920 bytes
 
-LEVEL_TABLE_COUNT        = 6
+; LEVEL_TABLE_COUNT (the number of built-in levels) is defined by the game,
+; next to its LevelTable, from the table's own length (ENGINE_CONTRACT.md).
 START_LEVEL              = 0
 
 ; Tile physical attributes (stored in TileAttributesTable)
@@ -347,10 +350,8 @@ ACTION_IDLE              = 0
 ACTION_MOVE              = 1
 ACTION_FALL              = 2
 ACTION_PUSH              = 3
-ACTION_INTRO             = 4     ; level intro star animation
-ACTION_SWITCH            = 5     ; player switch star animation
-ACTION_ATTACK            = 6     ; attack animation
-ACTION_DEATH             = 7     ; player death/collapse animation
+ACTION_ATTACK            = 4     ; attack animation
+ACTION_DEATH             = 5     ; player death/collapse animation
 
 ;------------------------------------------------------------------------------
 ; Engine GameStatus identifiers

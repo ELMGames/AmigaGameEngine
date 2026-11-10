@@ -19,15 +19,6 @@
 ; All routines preserve a5 (Variables) and a6 (CUSTOM).
 ;==============================================================================
 
-    IFND WALL_PAPER_WIDTH
-WALL_PAPER_WIDTH    = 14
-    ENDC
-    IFND WALL_PAPER_HEIGHT
-WALL_PAPER_HEIGHT   = 9
-    ENDC
-    IFND WALL_PAPER_SIZE
-WALL_PAPER_SIZE     = (WALL_PAPER_WIDTH*WALL_PAPER_HEIGHT)
-    ENDC
     IFND TILE_WIDTH
 TILE_WIDTH          = 24
     ENDC
@@ -48,14 +39,14 @@ SCREEN_STRIDE       = 160
 ;==============================================================================
 ; MarkTileDirty  -  Flag a tile cell for end-of-frame redraw
 ;
-; Entry: d0 = tile X (0..WALL_PAPER_WIDTH-1), d1 = tile Y (0..WALL_PAPER_HEIGHT-1)
+; Entry: d0 = tile X (0..MAP_WIDTH-1), d1 = tile Y (0..CurrentMapHeight-1)
 ; Preserves: all registers
 ;==============================================================================
 
 MarkTileDirty:
     movem.l     d0-d2/a0-a1,-(sp)
     move.w      d1,d2
-    mulu.w      #WALL_PAPER_WIDTH,d2
+    mulu.w      #MAP_WIDTH,d2
     add.w       d0,d2                      ; d2 = flat index
     lea         DirtyTiles(a5),a0
     tst.b       (a0,d2.w)                  ; already dirty this frame?
@@ -73,7 +64,13 @@ MarkTileDirty:
     rts
 
 ;==============================================================================
-; ClearDirtyTiles  -  Zero all dirty flags and reset queue count
+; ClearDirtyTiles  -  Zero the dirty flags of the whole map and reset the queue
+;
+; Clears CurrentMapSize flags (map width x the level's row count). At level
+; start this runs before LevelInit, so CurrentMapSize is still the previous
+; level's size: exactly the cells that can hold stale flags. After an undo it
+; is the current level's. On the first boot it is 0 and the table is already
+; clear (BSS), so nothing is done.
 ;
 ; Destroys: none (preserves all registers)
 ;==============================================================================
@@ -82,10 +79,13 @@ ClearDirtyTiles:
     movem.l     d7/a0,-(sp)
     clr.w       DirtyTileCount(a5)
     lea         DirtyTiles(a5),a0
-    move.w      #WALL_PAPER_SIZE-1,d7
+    move.w      CurrentMapSize(a5),d7   ; d7 = cells in the map (width x rows)
+    subq.w      #1,d7
+    bmi.s       .cdt_done               ; no map yet: nothing to clear
 .cdt_loop:
     clr.b       (a0)+
     dbra        d7,.cdt_loop
+.cdt_done:
     movem.l     (sp)+,d7/a0
     rts
 
@@ -113,7 +113,7 @@ FlushDirtyTiles:
     and.w       #$ff,d1                    ; d1 = tile Y
     lsr.w       #8,d0                      ; d0 = tile X
     move.w      d1,d2
-    mulu.w      #WALL_PAPER_WIDTH,d2
+    mulu.w      #MAP_WIDTH,d2
     add.w       d0,d2
     tst.b       (a0,d2.w)                  ; still dirty?
     beq.s       .fdt_next

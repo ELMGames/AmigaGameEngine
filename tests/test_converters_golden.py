@@ -55,7 +55,7 @@ class ConverterGoldenTests(unittest.TestCase):
         self.assertEqual(
             stale, [],
             "Committed assets differ from converter output; rebuild with "
-            "`python build.py --assets` and commit the result:\n  " + "\n  ".join(stale),
+            "`python tools/build.py --assets` and commit the result:\n  " + "\n  ".join(stale),
         )
 
 
