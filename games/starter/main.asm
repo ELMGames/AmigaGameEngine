@@ -126,7 +126,7 @@ GameInitHook:
 ; logic" is: toggle the flashing text when its timer runs out, and if ESC
 ; is held, set QuitFlag so MainLoop exits to QuitToOS.
 ; A real game replaces this with a state dispatcher (see
-; engine/gameplay/gamestatus.asm for Duck Rescue's 24-state version) -
+; engine/gameplay/gamestatus.asm for Duck Rescue's 27-state version) -
 ; nothing about the engine requires that shape, this one frame of logic
 ; is equally valid.
 ;

@@ -136,7 +136,7 @@ end-of-campaign check.
 - **`GameStatusRun`** — called **every frame** from `MainLoop`
   (`bsr GameStatusRun`, `engine_main.asm:112`). This is your entire
   per-frame game logic entry point. Duck Rescue's version
-  (`engine/gameplay/gamestatus.asm`) is a 24-state dispatcher covering
+  (`engine/gameplay/gamestatus.asm`) is a 27-state dispatcher covering
   loading/title/gameplay/credits/game-over/etc., but nothing requires
   that — **a minimal game can write a `GameStatusRun` that's a handful of
   lines** (check a key, maybe flip a border colour, `rts`) without

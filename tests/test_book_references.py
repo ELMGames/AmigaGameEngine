@@ -195,10 +195,11 @@ class BookReferenceTests(unittest.TestCase):
         ch26 = (BOOK_DIR / "part5-game-effects" / "25-title-screens-and-copper-effects.md").read_text(encoding="utf-8")
         ch33 = (BOOK_DIR / "part5-game-effects" / "32-defeating-the-512kb-barrier-dynamic-overlays-and-memory-topology.md").read_text(encoding="utf-8")
 
-        # Title module size is 45.3 KB (46,414 bytes / 1024), never 65.4 KB
-        self.assertIn("45.3 KB", ch09)
-        self.assertIn("45.3 KB", ch16)
-        self.assertNotIn("65.4 KB", ch16)
+        # Title module size is 45.3 KB (46,414 bytes / 1024), never 65.4 KB.
+        # Its home is Section 32.4; Chapters 8 and 15 refer there instead of repeating it.
+        self.assertIn("45.3 KB", ch33)
+        for text in (ch09, ch16, ch33):
+            self.assertNotIn("65.4 KB", text)
 
         # Loading screen ZX0 compressed size is 19,634 bytes (40,000 uncompressed)
         self.assertIn("19,634", ch25)
