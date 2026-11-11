@@ -87,7 +87,7 @@ SpriteCoord:
 ; ShowAttachedPlayerSprites - Position 4-sprite attached dual-pair player
 ;
 ; Positions a 24-pixel wide attached player avatar using 4 hardware sprites
-; (SPR2+3 for left half, SPR4+5 for right half) with sub-pixel interpolation.
+; (SPR2+3 for left half, SPR4+5 for right half) at any pixel position.
 ;
 ; On entry:
 ;   a4 = Player structure pointer

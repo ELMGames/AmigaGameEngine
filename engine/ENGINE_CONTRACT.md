@@ -270,8 +270,8 @@ game_hooks.asm` is the worked example. Unless stated, a hook may clobber
 | `GameUndoEraseHook` | `undo.asm` `UndoMove` | after `TilemapErasePlayer` | erase the game's on-screen entities |
 | `GameSnapshotRestoreHook` | `undo.asm` `UndoMove` | after map/actors/water restored | copy game state out of slot `a0` |
 | `GameUndoRedrawHook` | `undo.asm` `UndoMove` | after player redrawn | redraw entities and HUD |
-| `GameEnemySheetHook` | `entities.asm` `TilemapDrawEnemySubPixel` | every enemy blit | `a1` = colour sheet base (in: `EnemySpritesRaw`); may use `d3-d4` only |
-| `GameEnemyOverlayHook` | `entities.asm` `TilemapDrawEnemySubPixel` | after the enemy blit | draw over the enemy box at `a2` (`d0` = world X); preserve all registers |
+| `GameEnemySheetHook` | `entities.asm` `TilemapDrawEnemy` | every enemy blit | `a1` = colour sheet base (in: `EnemySpritesRaw`); may use `d3-d4` only |
+| `GameEnemyOverlayHook` | `entities.asm` `TilemapDrawEnemy` | after the enemy blit | draw over the enemy box at `a2` (`d0` = world X); preserve all registers |
 | `GamePushMoveHook` | `actor_physics.asm` `PlayerMoveActor` | a crate starts moving | start the player's move into the vacated cell; the engine then sets `ACTION_PUSH` |
 | `GameActorImpactHook` | `actor_physics.asm` `ActionFallActors` | each landing-effect tick | draw frame `d2.w` at pixel (`d0`,`d1`); preserve `d6-d7/a2-a3` |
 

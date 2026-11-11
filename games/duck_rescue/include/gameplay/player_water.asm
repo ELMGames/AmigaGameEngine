@@ -167,7 +167,7 @@ PlayerUpdateOxygen:
     ;   - In ACTION_IDLE state
     ;   - Not climbing a ladder
     ;   - Not mid-fall
-    ;   - Aligned to tile grid (sub-pixel offsets XDec == 0, YDec == 0)
+    ;   - Aligned to tile grid (in-tile offsets XDec == 0, YDec == 0)
     ;   - Feet are strictly above current water scanline (Feet Y < WaterPixelY)
 .check_safe_ground:
     cmp.w       #ACTION_IDLE,ActionStatus(a5)

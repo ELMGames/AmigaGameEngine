@@ -323,7 +323,7 @@ TilemapDrawPushBlocks:
     tst.w       Actor_HasMoved(a3)
     beq.s       .dpb_check_dirty
 
-    ; Moving push block: draw with sub-pixel offset
+    ; Moving push block: draw with its pixel offset within the tile
     bsr         DrawActor
     bra.s       .dpb_next
 
@@ -371,7 +371,7 @@ RedrawActorAtTile:
     move.l      (a2)+,a3                    ; a3 -> actor struct
     tst.w       Actor_Status(a3)            ; skip dead actors (killed but CleanActors not yet run)
     beq         .next
-    tst.w       Actor_HasFalled(a3)         ; skip mid-fall actors (drawn sub-pixel by ActionFallActors)
+    tst.w       Actor_HasFalled(a3)         ; skip mid-fall actors (drawn mid-fall by ActionFallActors)
     bne         .next
     cmp.w       Actor_X(a3),d0
     bne         .next

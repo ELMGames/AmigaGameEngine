@@ -37,7 +37,7 @@
 ; actor with Actor_HasFalled set:
 ;   1. RestoreBackgroundTile x2 - restore the two tiles the sprite spans
 ;   2. Increment Actor_YDec (accelerating: YDec/2 + 1 per frame)
-;   3. DrawActor        - redraw at new sub-pixel position
+;   3. DrawActor        - redraw at new pixel position
 ;   4. When Actor_YDec reaches Actor_FallY: clear fall fields and, if the
 ;      fall was IMPACT_MIN_ROWS rows or more, set Actor_ImpactTick = 1 to
 ;      start the landing effect in the impact section below.
@@ -96,7 +96,7 @@ ActionFallActors:
     add.w       #3*TILEMAP_TILE_HEIGHT-1,d1
     bsr         WaitBeamClearOfLines
 
-    ; Erase actor from previous sub-pixel position
+    ; Erase actor from previous pixel position
     bsr         ClearActor
 
     moveq       #0,d0
@@ -126,7 +126,7 @@ ActionFallActors:
     move.w      Actor_FallY(a3),Actor_YDec(a3)
 
 .draw
-    bsr         DrawActor               ; redraw at new (clamped) sub-pixel position
+    bsr         DrawActor               ; redraw at new (clamped) pixel position
 
     ; Has the fall reached its target?
     move.w      Actor_YDec(a3),d0
@@ -424,6 +424,12 @@ ActorFallAll:
 ; non-empty cell is found.  The count of empty cells is the fall distance.
 ; Ladders are treated as open shafts through which actors fall.
 ;
+; The player's cell (BLOCK_PLAYERSTART, or BLOCK_PLAYERLADDER on a ladder)
+; is support, not open space: a crate above the player waits on the player's
+; head, and falls when the player steps out (ActorFallAll runs after every
+; step). Falling into the player's cell would overwrite the player's map
+; marker, and the player's next move would then clear the crate's cell.
+;
 ; If the actor is directly supported (cell below non-empty), no fall occurs
 ; and d3 = 0 on return.
 ;
@@ -454,11 +460,7 @@ ActorFall:
     beq.s       .fallrow              ; empty: keep scanning down
     cmp.b       #BLOCK_LADDER,d2      ; ladder shaft: fall through!
     beq.s       .fallrow
-    cmp.b       #BLOCK_PLAYERLADDER,d2 ; ladder with player on it: also fall through!
-    beq.s       .fallrow
-    cmp.b       #BLOCK_PLAYERSTART,d2  ; player cell: fall through!
-    beq.s       .fallrow
-    bra.s       .found                ; real support: rest on top of it
+    bra.s       .found                ; support (including the player): rest on top of it
 
 .fallrow:
     addq.w      #1,d3                 ; fall one more row

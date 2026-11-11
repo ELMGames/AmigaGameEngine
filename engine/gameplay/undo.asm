@@ -232,7 +232,7 @@ UndoMove:
 .erase_actors_loop:
     tst.w       Actor_Status(a3)
     beq.s       .next_erase_actor       ; dead actors were erased when killed
-    bsr         ClearActor              ; erase sub-pixel/Prev position if mid-move/fall
+    bsr         ClearActor              ; erase in-tile/Prev position if mid-move/fall
     move.w      Actor_X(a3),d0
     move.w      Actor_Y(a3),d1
     bsr         RestoreBackgroundTile   ; erase settled tile position

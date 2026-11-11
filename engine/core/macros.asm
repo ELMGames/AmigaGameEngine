@@ -567,7 +567,7 @@ PLAYSFX            MACRO
 
 
 ;==============================================================================
-; BLTSHIFT12  -  Pack a blitter sub-pixel shift amount into bits 15:12
+; BLTSHIFT12  -  Pack a blitter pixel shift amount into bits 15:12
 ;
 ; BLTCON0/BLTCON1's shift field occupies the top nibble of the register.
 ; Given \1 holding the raw shift amount (0..15) in its low nibble, this packs
@@ -640,7 +640,7 @@ UNDO_COPY_ARRAY    MACRO
 ; Used by UndoMove after restoring the enemy/friend arrays: clears the Drawn
 ; flag and copies X/Y into PrevX/PrevY for every slot so the next redraw
 ; doesn't erase a stale pre-undo footprint. Pickups have no Prev*
-; fields (they don't track sub-pixel motion) and are cleaned inline instead.
+; fields (they don't track motion within a tile) and are cleaned inline instead.
 ;
 ; Arguments:
 ;   \1 = entity base label        \2 = max-count symbol

@@ -214,7 +214,7 @@
                 "-s", "gfx_framerate=1",
                 "-s", "gfx_linemode=double",
                 "-s", "sound_output=normal",
-                "-s", "filesystem=rw,dh0:${workspaceFolder}/uae/dh0"
+                allt es"-s", "filesystem=rw,dh0:${workspaceFolder}/uae/dh0"
             ],
             "preLaunchTask": "amigaassembly: build"
         },

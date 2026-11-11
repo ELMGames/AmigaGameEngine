@@ -148,7 +148,7 @@ ActionFall:
 ;==============================================================================
 ; ActionPush  -  One frame of the crate push animation
 ;
-; Erases the pushed actor, eases its sub-pixel X along the Quadratic table
+; Erases the pushed actor, eases its pixel X offset along the Quadratic table
 ; (trough to peak over PUSH_STEPS frames, signed by Actor_DirectionX),
 ; advances the player's walk animation, then redraws player and crate so
 ; the crate sits over the player's hands. After PUSH_STEPS frames both snap
@@ -209,20 +209,20 @@ ActionPush:
     neg.w       d0                    ; negative direction: negate offset
 
 .positive:
-    move.w      d0,Actor_XDec(a3)    ; store computed sub-pixel X offset
+    move.w      d0,Actor_XDec(a3)    ; store computed pixel X offset
 
-    ; Advance player sub-pixel position & walk animation
+    ; Advance player pixel position & walk animation
     move.w      Player_DirectionX(a4),d0
     add.w       d0,Player_XDec(a4)
     bsr         PlayerShowWalkAnim
 
     ; Re-draw player BOB: restores player pixels wiped out by ClearActor
-    ; and updates player to current sub-pixel walking position!
+    ; and updates player to current walking position!
     lea         Player(a5),a4
     bsr         TilemapDrawPlayer
     bsr         TilemapSubmergePlayer
 
-    ; Redraw block at its new sub-pixel position on top of the player's hands
+    ; Redraw block at its new pixel position on top of the player's hands
     move.l      PushedActor(a5),a3
     bsr         DrawActor
     lea         Player(a5),a4
@@ -233,7 +233,7 @@ ActionPush:
     bne         .exit                 ; not done yet
 
     ; Push animation complete
-    clr.w       Actor_XDec(a3)       ; clear sub-pixel offset (snap to final position)
+    clr.w       Actor_XDec(a3)       ; clear in-tile pixel offset (snap to final position)
     move.w      Actor_X(a3),Actor_PrevX(a3)   ; update previous position record
     clr.w       Actor_HasMoved(a3)
     move.w      #1,Actor_Dirty(a3)     ; flag settled actor for redraw
@@ -402,7 +402,7 @@ ActionMove:
     bra         PlayerStartAttack
 
 .no_move_attack:
-    ; Advance sub-pixel position by the movement direction (1 pixel per frame)
+    ; Advance pixel offset by the movement direction (1 pixel per frame)
     move.w      Player_XDec(a4),d0
     add.w       Player_DirectionX(a4),d0
     move.w      d0,Player_XDec(a4)
@@ -1097,7 +1097,7 @@ PlayerKillEnemy:
 ;   - Player_NextX/Y = target tile
 ;   - ActionStatus = ACTION_MOVE
 ;   - Player_ActionCount = 24 (one frame per pixel)
-;   - Clear XDec/YDec (start sub-pixel at 0)
+;   - Clear XDec/YDec (start in-tile offsets at 0)
 ;
 ; Destroys: d0-d1 (preserves everything else, including a5/a6)
 ;==============================================================================
@@ -1124,7 +1124,7 @@ PlayerDoMove:
     move.w      #ACTION_MOVE,ActionStatus(a5)  ; switch to MOVE state
     move.w      #TILE_WIDTH,Player_ActionCount(a4) ; 16 frames = 1 pixel/frame for 16px tile
 
-    clr.w       Player_XDec(a4)       ; start sub-pixel offsets at 0
+    clr.w       Player_XDec(a4)       ; start in-tile pixel offsets at 0
     clr.w       Player_YDec(a4)
 
     ; If moving vertically on a ladder, immediately ensure ladder state and clamped animation frame

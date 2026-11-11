@@ -19,7 +19,7 @@
 ;------------------------------------------------------------------------------
 ; Shared sheet geometry
 ;
-; TilemapDrawActorSubPixelBOB / TilemapEraseActorBOB (bob_compositor.asm) take
+; TilemapDrawActorBOB / TilemapEraseActorBOB (bob_compositor.asm) take
 ; the frame height at run time (d5); the sheet row width is fixed here because
 ; "four cels per row" is a sheet-authoring convention, not a per-entity trait.
 ;------------------------------------------------------------------------------

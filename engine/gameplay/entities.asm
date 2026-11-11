@@ -13,7 +13,7 @@
 ; The pools are filled from the LevelDef spawn lists by LevelInitEnemies,
 ; LevelInitFriends and LevelInitPickups (call them from GameLevelInitHook), and
 ; drawn with the shared BOB cores in bob_compositor.asm (TilemapEraseActorBOB,
-; TilemapDrawActorSubPixelBOB, TilemapStampForegroundOverBox).
+; TilemapDrawActorBOB, TilemapStampForegroundOverBox).
 ;
 ; What the game supplies (engine/ENGINE_CONTRACT.md):
 ;   entity_struct.i / entity_variables.i included, and the MAX_ACTIVE_* sizes
@@ -303,13 +303,13 @@ TilemapEraseEnemies:
 
 
 ;==============================================================================
-; TilemapUpdateEnemies  -  Per-frame dynamic enemy update & sub-pixel blit
+; TilemapUpdateEnemies  -  Per-frame dynamic enemy update & blit
 ;
 ; Sequence:
 ;   1. Update patrol movement: Enemy_X += Enemy_Direction * Enemy_Speed
 ;      Bounce against [Enemy_PatrolMinX .. Enemy_PatrolMaxX] and invert direction.
 ;   2. Advance animation frame every 8 frames (0..3).
-;   3. If within visible camera window, blit using sub-pixel barrel shifter (BLTCON0 shift).
+;   3. If within visible camera window, blit at any pixel X with the barrel shifter (BLTCON0 shift).
 ;      Uses cookie-cutter mask ($0FCA) to draw cleanly over background and player!
 ;
 ; Note: Erasing previous enemy footprints is handled by TilemapEraseEnemies
@@ -536,8 +536,8 @@ TilemapUpdateEnemiesInRange:
     movem.l     (sp)+,d7/a4             ; restore enemy pointer and loop counter
 
 .do_draw_enemy:
-    ; Step 4: Draw Enemy with Sub-Pixel Shifter (if in visible viewport)
-    bsr         TilemapDrawEnemySubPixel
+    ; Step 4: Draw Enemy with the Barrel Shifter (if in visible viewport)
+    bsr         TilemapDrawEnemy
 
 .next_update_draw:
     dbra        d7,.update_draw_loop
@@ -666,7 +666,7 @@ TilemapRedrawEnemiesOverPlayer:
     cmp.w       d3,d0
     bge.s       .treop_next             ; enemy top >= area bottom
     movem.l     d3-d7/a3,-(sp)
-    bsr         TilemapDrawEnemySubPixel ; same position: puts it back in front
+    bsr         TilemapDrawEnemy ; same position: puts it back in front
     movem.l     (sp)+,d3-d7/a3
 .treop_next:
     dbra        d7,.treop_loop
@@ -695,7 +695,7 @@ TilemapRedrawDrawnEnemies:
     tst.w       Enemy_Drawn(a4)
     beq.s       .trde_next
     movem.l     d7/a3,-(sp)
-    bsr         TilemapDrawEnemySubPixel
+    bsr         TilemapDrawEnemy
     movem.l     (sp)+,d7/a3
 .trde_next:
     dbra        d7,.trde_loop
@@ -879,7 +879,7 @@ TilemapRestoreTileEntities:
     bne.s       .rte_next_friend
 
     ; Match! Blit friend with cookie-cutter mask ($0FCA)
-    bsr         TilemapDrawFriendSubPixel
+    bsr         TilemapDrawFriend
     move.w      #1,Friend_Drawn(a4)
     bra.s       .rte_done
 
@@ -909,10 +909,10 @@ TilemapEraseEnemy:
 
 
 ;==============================================================================
-; TilemapDrawEnemySubPixel  -  Draw an enemy via the shared sub-pixel BOB core
+; TilemapDrawEnemy  -  Draw an enemy via the shared BOB core
 ;
 ; Resolves the enemy's mask/raw source frame (GameEnemySheetHook may swap
-; the sheet), delegates the blit to TilemapDrawActorSubPixelBOB, then lets
+; the sheet), delegates the blit to TilemapDrawActorBOB, then lets
 ; GameEnemyOverlayHook draw on top and applies the water submersion tint.
 ;
 ; In:  a4 = ActiveEnemy pointer
@@ -921,7 +921,7 @@ TilemapEraseEnemy:
 ; Destroys: d0-d5, a0-a3
 ;==============================================================================
 
-TilemapDrawEnemySubPixel:
+TilemapDrawEnemy:
     move.w      Enemy_X(a4),d0             ; 0..319
     move.w      Enemy_Y(a4),d1             ; 0..799
 
@@ -944,7 +944,7 @@ TilemapDrawEnemySubPixel:
     adda.l      d2,a1                   ; a1 = raw graphic frame source pointer
 
     moveq       #ENEMY_FRAME_HEIGHT,d5
-    bsr         TilemapDrawActorSubPixelBOB
+    bsr         TilemapDrawActorBOB
     tst.w       d4
     bne         .culled_enemy
 
@@ -1057,7 +1057,7 @@ TilemapEraseFriend:
 ; Sequence:
 ;   1. Advance animation timer and cycle jumping frames (0..3).
 ;   2. If friend has not been collected and is within visible camera window,
-;      blit using sub-pixel shifter and cookie-cutter mask ($0FCA).
+;      blit using the barrel shifter and cookie-cutter mask ($0FCA).
 ;
 ; Destroys: d0-d7, a0-a4 (preserves a5, a6)
 ;==============================================================================
@@ -1121,7 +1121,7 @@ TilemapUpdateFriends:
     bne.s       .next_update_draw
 
 .draw_current_friend:
-    bsr         TilemapDrawFriendSubPixel
+    bsr         TilemapDrawFriend
 
 .next_update_draw:
     lea         Friend_Sizeof(a4),a4
@@ -1133,17 +1133,17 @@ TilemapUpdateFriends:
 
 
 ;==============================================================================
-; TilemapDrawFriendSubPixel  -  Draw a friend via the shared sub-pixel BOB core
+; TilemapDrawFriend  -  Draw a friend via the shared BOB core
 ;
 ; Resolves the friend's mask/raw source frame, delegates the blit to
-; TilemapDrawActorSubPixelBOB, then layers the foreground-tile stamp and
+; TilemapDrawActorBOB, then layers the foreground-tile stamp and
 ; water submersion tint on top.
 ;
 ; In: a4 = ActiveFriend pointer
 ; Destroys: d0-d5, a0-a3 (preserves d7)
 ;==============================================================================
 
-TilemapDrawFriendSubPixel:
+TilemapDrawFriend:
     move.w      Friend_X(a4),d0             ; 0..319
     move.w      Friend_Y(a4),d1             ; 0..799
 
@@ -1163,7 +1163,7 @@ TilemapDrawFriendSubPixel:
     adda.l      d2,a1                   ; a1 = raw graphic frame source
 
     moveq       #FRIEND_FRAME_HEIGHT,d5
-    bsr         TilemapDrawActorSubPixelBOB
+    bsr         TilemapDrawActorBOB
     tst.w       d4
     bne         .culled_friend
 
@@ -1434,7 +1434,7 @@ TilemapRestorePlayerOverlaps:
     bgt         .rpo_next_friend
 
     ; Match! Blit friend
-    bsr         TilemapDrawFriendSubPixel
+    bsr         TilemapDrawFriend
     move.w      #1,Friend_Drawn(a4)
     moveq       #1,d7
 

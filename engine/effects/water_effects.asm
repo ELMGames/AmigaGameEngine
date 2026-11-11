@@ -396,7 +396,7 @@ TilemapSubmergeScanline:
 ;==============================================================================
 ; TilemapSubmergeActor  -  Apply wave surface graphic or solid blue stipple
 ;
-; Called by TilemapDrawPlayer and TilemapDrawEnemySubPixel to submerge an actor.
+; Called by TilemapDrawPlayer and TilemapDrawEnemy to submerge an actor.
 ; For scanlines WaterPixelY + 0..3, applies the wave crest profile from
 ; WaterWaveTable_Even / WaterWaveTable_Odd so the wave flows seamlessly across
 ; the actor with no straight-line cutoff.
@@ -1056,7 +1056,7 @@ TilemapUpdateWater:
     ble         .exit
 
     ; -------------------------------------------------------------------------
-    ; 1. Advance Fractional Sub-Pixel Frame Accumulator
+    ; 1. Advance Fractional Frame Accumulator
     ; -------------------------------------------------------------------------
     ; At 50Hz PAL, water rises at exactly 16 pixels per 10 seconds (500 frames).
     ; We add 16 to WaterSubTick every frame.

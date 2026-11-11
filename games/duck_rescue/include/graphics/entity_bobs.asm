@@ -62,7 +62,7 @@ EnemyDrawStunStars:
 ; Animation:
 ;   - 4-frame rotating star sequence (0..3), cycling every 4 frames (12.5 Hz).
 ;   - Uses cookie-cutter mask (DizzyStarsMsk) over screen background.
-;   - Handles sub-pixel horizontal shifting matching the enemy's exact X coordinate.
+;   - Shifts horizontally to match the enemy's exact pixel X coordinate.
 ;
 ; In: a2 = dest pointer in DisplayScreen (base of 16x16 enemy box)
 ;     d0 = World X (Enemy_X)

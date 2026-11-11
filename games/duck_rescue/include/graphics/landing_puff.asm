@@ -48,7 +48,7 @@ DrawSmokeFrame:
     adda.l      d3,a0
     adda.l      d3,a1
     moveq       #SMOKE_FRAME_HEIGHT,d5
-    bsr         TilemapDrawActorSubPixelBOB ; a2 = destination, d4 = 0 if drawn
+    bsr         TilemapDrawActorBOB ; a2 = destination, d4 = 0 if drawn
     tst.w       d4
     bne.s       .done                   ; off screen
 

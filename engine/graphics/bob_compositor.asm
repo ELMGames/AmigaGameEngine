@@ -1,6 +1,6 @@
 ;==============================================================================
 ; AMIGA GAME ENGINE
-; bob_compositor.asm  -  2D Sub-Pixel BOB Compositor & Background Restorer
+; bob_compositor.asm  -  2D BOB Compositor & Background Restorer
 ;==============================================================================
 ;==============================================================================
 ; TilemapEraseActorBOB  -  Shared erase core for 16x16 enemy/friend BOBs
@@ -100,10 +100,10 @@ TilemapEraseActorBOB:
 
 
 ;==============================================================================
-; TilemapDrawActorSubPixelBOB  -  Shared cookie-cut sub-pixel blit core for
+; TilemapDrawActorBOB  -  Shared cookie-cut blit core for
 ;                                 16x16 enemy/friend BOBs
 ;
-; Shared by TilemapDrawEnemySubPixel and TilemapDrawFriendSubPixel. Each
+; Shared by TilemapDrawEnemy and TilemapDrawFriend. Each
 ; wrapper resolves its own per-type source frame pointers (the enemy wrapper
 ; additionally picks the stun-flash white-silhouette source here) before
 ; calling, then performs its own per-type post-blit step (dizzy stars for
@@ -111,7 +111,7 @@ TilemapEraseActorBOB:
 ; its own struct afterward, since enemy and friend structs have different
 ; field layouts and can't be addressed generically here.
 ;
-;   - Sub-pixel horizontal positioning via blitter barrel shifter (BLTCON0/1 shift bits)
+;   - Pixel-accurate horizontal positioning via blitter barrel shifter (BLTCON0/1 shift bits)
 ;   - Camera viewport culling (8px headroom beyond the 216-scanline window)
 ;   - Cookie-cutter minterm $0FCA masking over screen background
 ;
@@ -129,7 +129,7 @@ TilemapEraseActorBOB:
 ; Destroys: d2-d5, a0-a3 (a4, a6, d6, d7 preserved; d0, d1 preserved)
 ;==============================================================================
 
-TilemapDrawActorSubPixelBOB:
+TilemapDrawActorBOB:
     ; Horizontal bounds check: clamp to valid display columns (0 .. 320 - 16)
     cmp.w       #0,d0
     blt         .culled_actorbob
@@ -360,7 +360,7 @@ TilemapErasePlayer:
 ;
 ; Blits the 24x24 pixel player BOB onto the 4-bitplane interleaved DisplayScreen.
 ; Handles:
-;   - Sub-pixel horizontal positioning and 8px vertical lift (centering 24px BOB on 16px tile)
+;   - Pixel-accurate horizontal positioning and 8px vertical lift (centering 24px BOB on 16px tile)
 ;   - Viewport vertical culling against dynamic TilemapCameraY
 ;   - Cel address calculation: 4 columns x 6 rows interleaved graphic sheet (1536 bytes/row)
 ;   - Directional sprite selection: right-facing from ROM/Fast, left-facing pre-flipped in Chip RAM
@@ -426,7 +426,7 @@ TilemapDrawPlayerCore:
     ; leaving equal 4-pixel margins on both sides.
     move.w      Player_X(a4),d0
     lsl.w       #4,d0                   ; d0 = Player_X * 16
-    add.w       Player_XDec(a4),d0      ; add sub-pixel interpolation offset (0..15)
+    add.w       Player_XDec(a4),d0      ; add pixel offset within the tile (0..15)
     subq.w      #4,d0                   ; center 24px BOB over 16px tile
     bpl.s       .x_not_neg
     moveq       #0,d0                   ; clamp left edge to 0
@@ -444,7 +444,7 @@ TilemapDrawPlayerCore:
     ; on top of the supporting tile platform.
     move.w      Player_Y(a4),d1
     lsl.w       #4,d1                   ; d1 = Player_Y * 16
-    add.w       Player_YDec(a4),d1      ; add sub-pixel vertical offset
+    add.w       Player_YDec(a4),d1      ; add vertical pixel offset within the tile
     subq.w      #8,d1                   ; lift 8px: d1 = World Y (top scanline of 24px BOB)
 
     ; -------------------------------------------------------------------------
@@ -560,7 +560,7 @@ TilemapDrawPlayerCore:
     ;   Channel D: Destination (screen output)
     ;
     ; Barrel shifter:
-    ;   Shift = World_X & 15 (sub-pixel bit offset).
+    ;   Shift = World_X & 15 (pixel offset within the word).
     ;   BLTCON0 bits 15:12 = Shift for Channel A
     ;   BLTCON1 bits 15:12 = Shift for Channel B
     move.w      d0,d3
