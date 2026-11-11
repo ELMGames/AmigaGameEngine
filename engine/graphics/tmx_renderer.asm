@@ -326,13 +326,16 @@ TilemapDrawLayerRows:
     move.w      (a4,d0.w),d0
     ext.l       d0
 
-    WAITBLIT
+    ; Work out both source addresses before waiting, while the previous
+    ; tile's blit is still running
     move.l      a2,d2
-    add.l       d0,d2
+    add.l       d0,d2                   ; d2 = mask address
+    move.l      a3,d3
+    add.l       d0,d3                   ; d3 = tile image address
+
+    WAITBLIT
     move.l      d2,BLTAPT(a6)           ; Mask (Channel A)
-    move.l      a3,d2
-    add.l       d0,d2
-    move.l      d2,BLTBPT(a6)           ; Source tile (Channel B)
+    move.l      d3,BLTBPT(a6)           ; Source tile (Channel B)
     move.l      a1,BLTCPT(a6)           ; Destination screen (Channel C)
     move.l      a1,BLTDPT(a6)           ; Destination screen (Channel D)
 
@@ -436,10 +439,10 @@ TilemapDrawLayerRows_DirectCopy:
     add.w       d0,d0
     move.w      (a4,d0.w),d0
     ext.l       d0
+    move.l      a3,d2
+    add.l       d0,d2                   ; d2 = tile address, worked out before the wait
 
     WAITBLIT
-    move.l      a3,d2
-    add.l       d0,d2
     move.l      d2,BLTAPT(a6)           ; Source tile raw (Channel A)
     move.l      a1,BLTDPT(a6)           ; Destination screen (Channel D)
 
@@ -1383,19 +1386,21 @@ TilemapStreamTileRowVisible:
     bge.s       .water_scan_loop
     move.w      d2,d0                   ; clamp start to WaterPixelY
 
-.water_scan_loop:
+.water_scan_loop:                       ; the wave crest, on the CPU
     cmp.w       d3,d0
     bgt.s       .no_row_water
     move.w      d0,d6
     sub.w       d2,d6                   ; d6 = offset from WaterPixelY
     cmp.w       #4,d6
-    ble.s       .apply_scan
-    moveq       #4,d6                   ; d6 >= 4 -> solid blue fill
-.apply_scan:
+    bge.s       .row_fill               ; from offset 4 on: the dither fill
     movea.l     a3,a0
     bsr         TilemapApplyWaveScanlineTo
     addq.w      #1,d0
     bra.s       .water_scan_loop
+.row_fill:
+    move.w      d3,d1                   ; lines d0..d3 are all dither:
+    movea.l     a3,a0                   ; one Blitter call fills them
+    bsr         WaterBlitFill
 
 .no_row_water:
     RASTER_BAND DEBUG_RASTER_STREAM_COPY ; profiler: magenta

@@ -77,6 +77,7 @@ Restart:
     move.w     #$7fff,ADKCON(a6)
     move.w     #$7fff,INTENA(a6)
     move.w     #$7fff,INTREQ(a6)
+    bsr        StopDriveMotors     ; the boot floppy's motor may still be running
 
     bsr        EngineInit
     bsr        StartVBlank

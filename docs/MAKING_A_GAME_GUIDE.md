@@ -1,6 +1,6 @@
 # Making a Game: Building Your Own Game on the Engine
 
-Duck Rescue is one game built on AmigaGameEngine; this guide is for the next one. It takes you from the minimal starter that boots and quits, to a game with its own state, its own subsystems and its own art, and explains what the engine expects from a game at each step.
+Duck Rescue is one game built on AmigaGameEngine; this guide is for the next one. *Meadow Run* (`games/meadow_run/`, book Chapter 36) is a worked example of the whole path: a sideways-scrolling platformer that began as a copy of the starter and is laid out like Duck Rescue. It takes you from the minimal starter that boots and quits, to a game with its own state, its own subsystems and its own art, and explains what the engine expects from a game at each step.
 
 There is no plugin system or registration table. The engine and the game are assembled together as one program (see the Single Translation Units Guide), so "the interface" is simply the set of symbols each side must define. Get one wrong and `vasm` stops with an unresolved symbol, which is a far better failure than a crash on the Amiga.
 
@@ -133,6 +133,10 @@ python tools/build.py --game my_game --explain
 On a failed build, `--explain` lists every missing symbol, the engine file that needs it, and where Duck Rescue defines it. Copy or bind each one, then build again. The starter itself was built this way.
 
 Include order matters: a file can use only the macros and equates defined above it. Follow the order in Duck Rescue's `main.asm`: headers and constants (`amiga_hw.i` first), then `engine_main.asm`, then system, graphics, gameplay, game code and screens, then audio and data.
+
+### Scrolling sideways
+
+The engine's tilemap renderer (`tmx_renderer.asm`) scrolls vertically, one screen wide. For a level wider than the screen, include `engine/graphics/hscroll.asm` and add `include "hscroll_variables.i"` to your `variables.asm` after `engine_variables.i`. Before it, define `HS_MAP_ROWS`, `HS_MAP_COLS`, `HS_SHEET_COLS` and `HS_SHEET_ROW_BYTES`; provide `HsTileSheet`, `HsTileMask`, two `HS_BUF_SIZE` Chip BSS buffers (`HsDisplayBuf`, `HsCleanBuf`), and `HsCopperScroll`/`HsCopperPlanes` entries after a Copper `WAIT` just above the display window. Point `HsMapBack`, `HsMapMid` and `HsMapFront` at your word maps and call `HsInit`, then `HsSetCamera` early in every frame. `games/meadow_run/` shows all of it.
 
 ## 8. Levels and Assets
 

@@ -24,7 +24,8 @@ sys.path.insert(0, str(REPO_ROOT / "tools"))
 import build  # noqa: E402
 
 GOLDEN = GOLDEN_DIR / "executables.json"
-GAMES = {"starter": "uae/dh0/starter", "duck_rescue": "uae/dh0/main"}
+GAMES = {"starter": "uae/dh0/starter", "duck_rescue": "uae/dh0/main",
+         "meadow_run": "uae/dh0/meadow_run"}
 
 
 def build_game(game):

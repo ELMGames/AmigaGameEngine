@@ -100,7 +100,7 @@ Out of the box, it features a complete boot-to-gameplay pipeline: custom OS take
 The root `main.asm` chooses which game is built:
 
 ```asm
-    include "games/duck_rescue/main.asm"    ; or games/starter/main.asm
+    include "games/duck_rescue/main.asm"    ; or games/starter/main.asm, games/meadow_run/main.asm
 ```
 
 Press **F5** in VS Code: the `amigaassembly: build` task assembles and links it to `uae/dh0/main`, then the selected launch profile boots it in WinUAE or FS-UAE. The A500, Workbench and FS-UAE profiles run `build + ADF` instead, which also writes a bootable floppy image, `adfs/game.adf` (see below). `Ctrl+Shift+B` builds without running. F5 assembles code only: after changing art, palettes or levels, regenerate the assets with `python tools/build.py --assets`.
@@ -131,6 +131,8 @@ python -m unittest discover tests   # converter and executable golden files, eng
 python tests/update_golden.py       # accept an intentional converter/art change
 python tests/update_golden.py --executables  # accept an intentional code change, once checked in the emulator
 ```
+
+A second, smaller game, `games/meadow_run/`, is a horizontally scrolling platformer built from the starter on the engine's sideways-scrolling module (`engine/graphics/hscroll.asm`); the book's Chapter 36 walks through it. Build it with `python tools/build.py --game meadow_run`.
 
 Starting a new game? Copy `games/starter/` and follow the [Making a Game guide](docs/MAKING_A_GAME_GUIDE.pdf). Naming and layout rules are in the [Coding Conventions guide](docs/CODING_CONVENTIONS_GUIDE.pdf). All seven companion guides (draw order, ring buffer, asset pipeline, launch profiles and more) are PDFs in [`docs/`](docs/).
 
@@ -277,6 +279,7 @@ All game assets are processed deterministically via scripts in [`games/duck_resc
 │   └── system/                     # OS takeover, fault trap, keyboard, controls, tools, zx0_faster
 ├── games/
 │   ├── starter/                    # Minimal template for a new game: gradient, HELLO / WORLD, ESC quits (see docs/MAKING_A_GAME_GUIDE.pdf)
+│   ├── meadow_run/                 # Horizontally scrolling platformer built from the starter (book Chapter 36)
 │   └── duck_rescue/                # Example game: Duck Rescue (starring Mia)
 │       ├── main.asm                # Game entry point, memory sections, main loop, VBlank ISR
 │       ├── assets/                 # Game-specific graphics, Tiled .tmx levels, ProTracker music, SFX

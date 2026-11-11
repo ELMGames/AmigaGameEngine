@@ -609,7 +609,7 @@ GameRunFrame:
     bsr         GameDrawHook         ; game blits the rest, chasing the beam
 
     ; -------------------------------------------------------------------------
-    ; 1. CPU-Side Game Logic & Collision Phase (Active Raster, Scanlines 20..100)
+    ; 1. CPU-Side Game Logic & Collisions (Phase 2: after the draw pass, while the beam is in the display window)
     ; -------------------------------------------------------------------------
     bsr         UpdateControls       ; read keyboard/joystick, compute trigger/hold bytes
     bsr         GameLogicHook        ; player state machine, pickups and collisions

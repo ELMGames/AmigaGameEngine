@@ -1080,6 +1080,31 @@ VBlankTick:
     rte
 
 ;==============================================================================
+; StopDriveMotors  -  Switch off the motors of all four floppy drives
+;
+; A game started from a floppy takes the machine over a moment after
+; AmigaDOS finished loading it, while trackdisk.device's motor-off timer is
+; still counting. With interrupts off that timer never fires, so without
+; this the drive would spin, light on, for the whole game. Restart calls it
+; once DMA and interrupts are off.
+;
+; A drive latches the motor line (CIA-B PRB bit 7, active low) on the edge
+; where it is selected. So: deselect every drive with MTR high, select all
+; four at once (each latches "motor off"), then deselect them again. The
+; write that selects them also holds SIDE, DIR and STEP high (inactive), so
+; no head moves.
+;
+; Destroys: a0
+;==============================================================================
+
+StopDriveMotors:
+    lea         CIAB_BASE+$100,a0       ; $BFD100: CIA-B PRB, the drive lines
+    move.b      #$ff,(a0)               ; MTR high (off), DF0-DF3 deselected
+    move.b      #$87,(a0)               ; SEL0-SEL3 low: each drive latches MTR off
+    move.b      #$ff,(a0)               ; deselect them all again
+    rts
+
+;==============================================================================
 ; ClearSprites  -  Point all 8 hardware sprite channels at NullSprite
 ;
 ; Writes the address of NullSprite (two zero longwords = a terminated, empty

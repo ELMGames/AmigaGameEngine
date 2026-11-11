@@ -113,7 +113,7 @@ TilemapInitWater:
 ;==============================================================================
 
 TilemapRenderWaterInBuffer:
-    PUSHM       d0/d4/d6
+    PUSHM       d0-d1/d6
     move.w      WaterPixelY(a5),d0
     bmi.s       .trwb_done
     moveq       #0,d6                   ; Wave Line 0 (crest tips)
@@ -129,21 +129,15 @@ TilemapRenderWaterInBuffer:
     bsr         TilemapApplyWaveScanline
     addq.w      #1,d0                   ; WaterPixelY + 4
 
-    ; Fill all scanlines below wave down to bottom of map with solid blue
-    move.w      CurrentMapHeight(a5),d4
-    lsl.w       #4,d4
-    subq.w      #1,d4                   ; d4 = (CurrentMapHeight * 16) - 1
-
-.trwb_fill_loop:
-    cmp.w       d4,d0
-    bgt.s       .trwb_done
-    moveq       #4,d6                   ; Line 4 (solid blue fill)
-    bsr         TilemapApplyWaveScanline
-    addq.w      #1,d0
-    bra.s       .trwb_fill_loop
+    ; Fill all scanlines below the wave down to the bottom of the map with
+    ; the solid blue dither, on the Blitter
+    move.w      CurrentMapHeight(a5),d1
+    lsl.w       #4,d1
+    subq.w      #1,d1                   ; d1 = (CurrentMapHeight * 16) - 1
+    bsr         TilemapFillWaterRange
 
 .trwb_done:
-    POPM        d0/d4/d6
+    POPM        d0-d1/d6
     rts
 
 
@@ -345,7 +339,8 @@ WaterApplyScanline:
     rts
 
 .generic_wave_line:
-    ; Generic cookie-cut for wave lines 0..3:
+    ; Generic cookie-cut for wave lines 0..3 (the crest stays on the CPU:
+    ; it is four lines, and each plane needs its own OR value)
     ; Plane 0 (20 words)
     moveq       #20-1,d7
 .p0_loop:
@@ -373,6 +368,151 @@ WaterApplyScanline:
     and.w       d1,(a0)
     or.w        d5,(a0)+
     dbra        d7,.p3_loop
+    rts
+
+
+;==============================================================================
+; TilemapFillWaterRange  -  Water dither on a range of scanlines, all copies
+;
+; The Blitter version of calling TilemapApplyWaveScanline with line type 4
+; on every scanline from d0 to d1. It clips the range to the 256 lines the
+; ring buffer holds, then dithers both halves of NonDisplayScreen and of
+; DisplayScreen with WaterBlitFill.
+;
+; In:  d0.w = first world scanline, d1.w = last world scanline (inclusive)
+; Destroys: none (preserves all registers)
+;==============================================================================
+
+TilemapFillWaterRange:
+    PUSHM       d0-d2/a0
+    move.w      RingBufferTopRow(a5),d2
+    lsl.w       #4,d2                   ; d2 = first world line held in the ring
+    cmp.w       d2,d0
+    bge.s       .top_ok
+    move.w      d2,d0
+.top_ok:
+    add.w       #RING_BUFFER_HEIGHT-1,d2 ; d2 = last world line held in the ring
+    cmp.w       d2,d1
+    ble.s       .bot_ok
+    move.w      d2,d1
+.bot_ok:
+    cmp.w       d0,d1
+    blt.s       .done                   ; nothing of the range is in the ring
+    lea         NonDisplayScreen,a0
+    bsr         WaterBlitFill
+    lea         DisplayScreen,a0
+    bsr         WaterBlitFill
+    lea         NonDisplayScreen+16*TILEMAP_ROW_STRIDE,a0 ; mirror halves
+    bsr         WaterBlitFill
+    lea         DisplayScreen+16*TILEMAP_ROW_STRIDE,a0
+    bsr         WaterBlitFill
+.done:
+    POPM        d0-d2/a0
+    rts
+
+
+;==============================================================================
+; WaterBlitFill  -  Blitter: the 50% water dither on a run of scanlines
+;
+; Below the wave crest, the water sets every other pixel to colour 1:
+; plane 0 is ORed with a pattern and planes 1-3 are ANDed with its
+; complement. The pattern is $AAAA on even world lines and $5555 on odd
+; ones (Line 4 of WaterWaveTable_Even and _Odd).
+;
+; The Blitter does this with channels A and D only: A reads the screen and
+; D writes it back. C's DMA is off, so C supplies the constant pattern held
+; in BLTCDAT. An A+D blit takes 2 colour clocks per word, against 3 for C+D
+; (the Blitter adds an idle cycle when C and D are used together). Each
+; parity is a pass of its own, even lines then odd, stepping two scanlines
+; (320 bytes) per blit row. Each pass is two blits: plane 0 with D = A | C
+; (minterm $FA), then the three planes 1-3, which sit side by side in an
+; interleaved scanline, with D = A & /C (minterm $50), 60 words wide.
+;
+; In:  a0   = buffer half: NonDisplayScreen or DisplayScreen, plus
+;             16 * TILEMAP_ROW_STRIDE for the mirror half
+;      d0.w = first world scanline, d1.w = last world scanline (inclusive),
+;             both inside the ring buffer window (as WaterWaveSetup tests)
+; Destroys: none. Waits for the Blitter before it returns, because the
+;           CPU crest and actor dither may write the same lines next.
+;==============================================================================
+
+WaterBlitFill:
+    PUSHM       d0-d5/a1-a2
+    sub.w       d0,d1
+    bmi.s       .done                   ; empty range
+    addq.w      #1,d1                   ; d1 = number of lines
+    move.w      d0,d2
+    andi.w      #RING_BUFFER_MASK,d2    ; d2 = first ring line (0..255)
+    move.w      #RING_BUFFER_HEIGHT,d3
+    sub.w       d2,d3                   ; d3 = lines before the ring wraps
+    cmp.w       d3,d1
+    ble.s       .last_run
+    ; The range crosses ring line 255: fill to the wrap, then from line 0
+    move.w      d1,d4
+    sub.w       d3,d4                   ; d4 = lines after the wrap
+    move.w      d3,d1
+    movem.w     d3-d4,-(sp)
+    bsr.s       .run
+    movem.w     (sp)+,d3-d4
+    add.w       d3,d0                   ; world line just after the wrap
+    moveq       #0,d2
+    move.w      d4,d1
+.last_run:
+    bsr.s       .run
+.done:
+    POPM        d0-d5/a1-a2
+    rts
+
+; One run with no wrap: d0 = world line (for parity), d1 = lines, d2 = ring line
+.run:
+    move.w      d2,d5
+    mulu.w      #TILEMAP_LINE_STRIDE,d5
+    lea         (a0,d5.l),a1            ; a1 = plane 0 of the run's first line
+    move.w      #$aaaa,d5               ; pattern for an even world line
+    btst        #0,d0
+    beq.s       .first_even
+    move.w      #$5555,d5               ; pattern for an odd world line
+.first_even:
+    move.w      d1,d3
+    addq.w      #1,d3
+    lsr.w       #1,d3                   ; d3 = lines of the first parity
+    bsr.s       .pass
+    lea         TILEMAP_LINE_STRIDE(a1),a1 ; the other parity starts a line down
+    not.w       d5                      ; and uses the other pattern
+    move.w      d1,d3
+    lsr.w       #1,d3                   ; d3 = lines of the second parity
+    ; falls through: the second pass returns from .run
+
+; One parity: a1 = plane 0 of its first line, d3 = lines, d5 = pattern
+.pass:
+    tst.w       d3
+    beq         .pass_done
+    WAITBLIT
+    move.l      #$ffffffff,BLTAFWM(a6)
+    clr.w       BLTCON1(a6)
+    move.w      d5,BLTCDAT(a6)          ; C = the pattern, with no C DMA
+    move.w      #$09fa,BLTCON0(a6)      ; USEA|USED, D = A | C: plane 0
+    move.w      #2*TILEMAP_LINE_STRIDE-SCREEN_WIDTH_BYTE,BLTAMOD(a6) ; 320 - 40
+    move.w      #2*TILEMAP_LINE_STRIDE-SCREEN_WIDTH_BYTE,BLTDMOD(a6)
+    move.l      a1,BLTAPT(a6)           ; A = the screen
+    move.l      a1,BLTDPT(a6)
+    move.w      d3,d4
+    lsl.w       #6,d4
+    or.w        #SCREEN_WIDTH_BYTE/2,d4
+    move.w      d4,BLTSIZE(a6)          ; d3 lines x 20 words
+    WAITBLIT
+    move.w      #$0950,BLTCON0(a6)      ; USEA|USED, D = A & /C: planes 1-3
+    move.w      #2*TILEMAP_LINE_STRIDE-3*SCREEN_WIDTH_BYTE,BLTAMOD(a6) ; 320 - 120
+    move.w      #2*TILEMAP_LINE_STRIDE-3*SCREEN_WIDTH_BYTE,BLTDMOD(a6)
+    lea         SCREEN_WIDTH_BYTE(a1),a2 ; plane 1 of the same line
+    move.l      a2,BLTAPT(a6)
+    move.l      a2,BLTDPT(a6)
+    move.w      d3,d4
+    lsl.w       #6,d4
+    or.w        #3*SCREEN_WIDTH_BYTE/2,d4
+    move.w      d4,BLTSIZE(a6)          ; d3 lines x 60 words
+    WAITBLIT
+.pass_done:
     rts
 
 
@@ -1383,14 +1523,8 @@ TilemapRewindWater:
     move.w      d1,d4
 .scan_end_ok:
 
-.fill_blue_loop:
-    cmp.w       d4,d0
-    bgt.s       .fill_blue_done
-    moveq       #4,d6                   ; Line 4 (solid blue)
-    bsr         TilemapApplyWaveScanline
-    addq.w      #1,d0
-    bra.s       .fill_blue_loop
-.fill_blue_done:
+    move.w      d4,d1                   ; solid blue, RestoredY + 4 to EndScanline
+    bsr         TilemapFillWaterRange   ; on the Blitter
 
     ; Step 4: Synchronize LiveWaterMap
     move.w      d5,d6                   ; RestoredY

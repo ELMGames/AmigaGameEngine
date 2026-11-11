@@ -35,12 +35,14 @@ ASSET_PIPELINE = [
     ("convert_duck_banner.py", "Converting Duck Rescue Banner", True),
     ("generate_sfx.py", "Generating Sound Effects", True),
     ("convert_data_tables.py", "Converting Data Tables", False),
+    ("convert_tiles.py", "Building the Tile Sheet", False),
     ("export_level.py", "Exporting Tiled Levels", False),
     ("convert_player_bob.py", "Converting Player BOB Assets", False),
     ("convert_animals.py", "Converting Animal Friend Assets", False),
     ("convert_enemies.py", "Converting Enemy Assets", False),
     ("convert_effects.py", "Converting Effect Assets", False),
     ("convert_headshots.py", "Converting Headshot Assets", False),
+    ("check_level.py", "Checking the level can be finished", False),
 ]
 
 

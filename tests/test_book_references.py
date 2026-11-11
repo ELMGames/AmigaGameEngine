@@ -146,7 +146,7 @@ class BookReferenceTests(unittest.TestCase):
             self.fail("References to missing sections:\n  " + "\n  ".join(errors))
 
     def test_no_references_to_removed_material(self) -> None:
-        bad = re.compile(r"Part VI\b|Chapters? 3[6-9]\b|Appendix [LM]\b|Appendix I and|Appendices [A-K] and M\b")
+        bad = re.compile(r"Part VI\b|Chapters? 3[7-9]\b|Appendix [LM]\b|Appendix I and|Appendices [A-K] and M\b")
         errors: list[str] = []
         for md_path in _book_files():
             for lineno, line in enumerate(md_path.read_text(encoding="utf-8").splitlines(), start=1):

@@ -56,6 +56,10 @@ from the game is the `Player` struct (section 3) and the contract constants
 (section 5). **If a build fails with an unresolved `(a5)` field, grep the
 engine file that names it; it is one of those two.**
 
+### Optional module variables
+
+Optional engine modules bring their fields as an include on the same chain: `entity_variables.i` (the enemy, friend and pickup pools, for `entities.asm`) and `hscroll_variables.i` (the sideways scroller, for `hscroll.asm`; the game defines `HS_MAP_ROWS`, `HS_MAP_COLS`, `HS_SHEET_COLS` and `HS_SHEET_ROW_BYTES` first). `games/meadow_run/include/core/variables.asm` shows the second.
+
 ## 3. Structs: ownership is split, not uniform
 
 | Struct | Owner | Defined in |

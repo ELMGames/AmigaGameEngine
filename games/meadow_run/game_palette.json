@@ -1,0 +1,21 @@
+{
+  "description": "Shared 16-colour Amiga OCS playfield palette for Meadow Run (copied from Duck Rescue, whose tiles and sprite it reuses). Values are 4-bit (0-15) per channel; multiply by 17 for 8-bit RGB. Previously this exact palette was hardcoded separately in convert_player_bob.py, convert_enemies.py, convert_animals.py, and export_level.py (four copies, kept in sync by hand). All four now load it from here instead. A new game should copy this file and edit the values/names to its own palette.",
+  "colors": [
+    { "index": 0,  "rgb4": [0, 0, 0],    "name": "Transparent" },
+    { "index": 1,  "rgb4": [1, 11, 14],  "name": "Vibrant Cyan" },
+    { "index": 2,  "rgb4": [3, 3, 2],    "name": "Dark Outline" },
+    { "index": 3,  "rgb4": [15, 15, 15], "name": "Pure White" },
+    { "index": 4,  "rgb4": [2, 7, 4],    "name": "Forest Green" },
+    { "index": 5,  "rgb4": [1, 9, 3],    "name": "Grass Green" },
+    { "index": 6,  "rgb4": [15, 9, 1],   "name": "Vibrant Orange" },
+    { "index": 7,  "rgb4": [2, 5, 12],   "name": "Deep Blue" },
+    { "index": 8,  "rgb4": [15, 12, 2],  "name": "Vibrant Gold" },
+    { "index": 9,  "rgb4": [13, 10, 6],  "name": "Light Wood / Sand" },
+    { "index": 10, "rgb4": [11, 7, 4],   "name": "Stone / Earth" },
+    { "index": 11, "rgb4": [8, 1, 3],    "name": "Rich Maroon" },
+    { "index": 12, "rgb4": [13, 1, 2],   "name": "Vibrant Red" },
+    { "index": 13, "rgb4": [8, 9, 11],   "name": "Slate Grey / Blue" },
+    { "index": 14, "rgb4": [1, 7, 7],    "name": "Vibrant Teal" },
+    { "index": 15, "rgb4": [12, 10, 8],  "name": "Tan / Peach" }
+  ]
+}
